@@ -208,8 +208,10 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       finalResolution = "720p";
   }
 
+  const isVideoExtension = referenceUrl && (referenceUrl.includes('.mp4') || referenceUrl.includes('video'));
+
   const payload = {
-      "prompt": prompt,
+      "prompt": prompt || (referenceUrl ? "Continue this scene" : "Generate a cinematic video"),
       "channel": modelConfig.channel,
       "pageId": modelConfig.pageId,
       "source": "ximagine.io",
@@ -217,12 +219,13 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "privateFlag": false,
       "isTemp": true,
       "model": "grok-imagine",
-      "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
+      "videoType": referenceUrl ? (isVideoExtension ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
       "fps": 30, // 強制指定幀率以確保時長一致性
-      "imageUrls": referenceUrl ? [referenceUrl] : []
+      "imageUrls": (!isVideoExtension && referenceUrl) ? [referenceUrl] : [],
+      "videoUrl": isVideoExtension ? referenceUrl : undefined
   };
 
   if (modelConfig.type === 'video') {
@@ -230,15 +233,18 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
       // 檢查是否有參考內容 (Prompt 中傳來的 JSON 格式)
       try {
-          // 嘗試解析 prompt 是否為 JSON（包含 Img2Vid / Vid2Vid 參數）
-          if (prompt.trim().startsWith('{')) {
+          if (prompt && prompt.trim().startsWith('{')) {
               const jsonPrompt = JSON.parse(prompt);
-              if ((jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0) || jsonPrompt.videoUrl) {
+              const hasVideo = jsonPrompt.videoUrl || (jsonPrompt.imageUrls && jsonPrompt.imageUrls[0]?.includes('.mp4'));
+              const hasImage = jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0 && !hasVideo;
+
+              if (hasVideo || hasImage) {
                   payload.prompt = jsonPrompt.prompt || "Continue the scene";
-                  payload.imageUrls = jsonPrompt.imageUrls || [jsonPrompt.videoUrl];
-                  payload.videoType = jsonPrompt.videoUrl ? "video-to-video" : "image-to-video";
+                  payload.videoType = hasVideo ? "video-to-video" : "image-to-video";
+                  payload.videoUrl = hasVideo ? (jsonPrompt.videoUrl || jsonPrompt.imageUrls[0]) : undefined;
+                  payload.imageUrls = hasImage ? jsonPrompt.imageUrls : [];
                   payload.watermarkFlag = false; // 用戶要求去水印
-                  // 這裡可以覆蓋參數，如果 JSON 中提供了
+                  
                   if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
                       payload.duration = parseInt(jsonPrompt.duration);
                   }
@@ -257,6 +263,11 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   const endpoint = modelConfig.type === 'image'
       ? `${CONFIG.API_BASE}/ai/grok/create`
       : `${CONFIG.API_BASE}/ai/video/create`;
+
+  // 增加影片延長任務日誌
+  if (isVideoExtension) {
+      logEvent('v2v_task_submitting', { taskId: uniqueId, videoUrl: referenceUrl, prompt: payload.prompt });
+  }
 
   const createRes = await fetch(endpoint, {
       method: 'POST',
@@ -400,7 +411,8 @@ async function handleChatCompletions(request, apiKey) {
   try {
       if (lastMsg.trim().startsWith('{') && lastMsg.includes('prompt')) {
           const parsed = JSON.parse(lastMsg);
-          prompt = parsed.prompt || prompt;
+          // 只有當 parsed.prompt 明確有值時才覆蓋，否則保持 lastMsg 的原始解析或空
+          if (parsed.prompt !== undefined) prompt = parsed.prompt;
           if (parsed.aspectRatio) aspectRatio = parsed.aspectRatio;
           if (parsed.duration) duration = parsed.duration;
           if (parsed.resolution) resolution = parsed.resolution;
@@ -1706,12 +1718,17 @@ function handleUI(request, apiKey) {
     async function submitTask() {
       const strings = I18N[currentLang];
       const prompt = document.getElementById('prompt').value.trim();
-      if (!prompt) return;
+      
+      // 允許在有參考圖片/影片時不輸入提示詞
+      if (!prompt && !uploadedImageUrl) {
+        showToast(currentLang === 'zh' ? '請輸入提示詞' : 'Please enter a prompt');
+        return;
+      }
 
       const task = {
         id: 'task_' + Date.now(),
         status: 'pending',
-        prompt: prompt,
+        prompt: prompt || (uploadedImageUrl ? (currentLang === 'zh' ? '接續場景...' : 'Continue scene...') : (currentLang === 'zh' ? '智能生成...' : 'AI Generation...')),
         ratio: getSelectedValue('ratio-control'),
         duration: getSelectedValue('duration-control'),
         resolution: getSelectedValue('res-control'),
