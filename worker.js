@@ -88,6 +88,9 @@ export default {
       // 2. 开发者驾驶舱 (Web UI)
       if (url.pathname === '/') return handleUI(request, apiKey);
 
+      // 2.1 處理 favicon.ico 以避免 404
+      if (url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
+
       // 3. 聊天接口 (核心生成逻辑 - 兼容 OpenAI)
       if (url.pathname === '/v1/chat/completions') return handleChatCompletions(request, apiKey);
 
@@ -226,7 +229,8 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "isTemp": true,
       "model": "grok-imagine",
       "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
-      "aspectRatio": finalRatio,
+      "aspect_ratio": finalRatio,
+      "aspectRatio": finalRatio, // 雙重兼容
       "duration": finalDuration,
       "resolution": finalResolution,
       "fps": 30, // 強制指定幀率以確保時長一致性
@@ -266,45 +270,61 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       ? `${CONFIG.API_BASE}/ai/grok/create`
       : `${CONFIG.API_BASE}/ai/video/create`;
 
-  const createRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-          ...headers,
-          'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-  });
+  logEvent('task_submitting', { model: modelKey, endpoint });
 
-  if (!createRes.ok) {
-      const errText = await createRes.text();
-      throw new Error(`上游拒绝 (${createRes.status}): ${errText}`);
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
 
-  const createData = await createRes.json();
-  if (createData.code !== 200 || !createData.data) {
-      // 传递原始 error code 给前端处理
-      if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
-          throw new Error(`HC_VERIFICATION_REQUIRED`);
+  try {
+      const createRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+              ...headers,
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!createRes.ok) {
+          const errText = await createRes.text();
+          throw new Error(`上游拒绝 (${createRes.status}): ${errText}`);
       }
-      throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
-  }
 
-  const taskId = createData.data;
+      const createData = await createRes.json();
+      const taskId = createData.data || createData.taskId || (createData.data && createData.data.taskId);
 
-  logEvent('task_created', { taskId, uniqueId, model: modelKey, prompt: prompt.substring(0, 50) });
+      if (!taskId) {
+          // 传递原始 error code 给前端处理
+          if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
+              throw new Error(`HC_VERIFICATION_REQUIRED`);
+          }
+          throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
+      }
 
-  // [WebUI 模式] 立即返回 ID
-  if (clientPollMode) {
-      return { 
-          mode: 'async', 
-          taskId: taskId, 
-          uniqueId: uniqueId, 
-          type: modelConfig.type,
-          created_at: taskStartTime // 返回精確的建立時間戳
-      };
-  }
+      logEvent('task_created', { taskId, uniqueId, model: modelKey, prompt: prompt.substring(0, 50) });
 
-  // [API 模式] 后端轮询
+       // [WebUI 模式] 立即返回 ID
+       if (clientPollMode) {
+           return { 
+               mode: 'async', 
+               taskId: taskId, 
+               uniqueId: uniqueId, 
+               type: modelConfig.type,
+               created_at: taskStartTime // 返回精確的建立時間戳
+           };
+       }
+   } catch (e) {
+       clearTimeout(timeoutId);
+       if (e.name === 'AbortError') {
+           throw new Error("上游請求超時 (30s)，請重試");
+       }
+       throw e;
+   }
+
+   // [API 模式] 后端轮询
   const pollingStartTime = Date.now();
   let videoUrl = null;
 
@@ -410,6 +430,7 @@ async function handleChatCompletions(request, apiKey) {
           const parsed = JSON.parse(lastMsg);
           prompt = parsed.prompt || prompt;
           if (parsed.aspectRatio) aspectRatio = parsed.aspectRatio;
+          if (parsed.aspect_ratio) aspectRatio = parsed.aspect_ratio; // 雙重兼容
           if (parsed.duration) duration = parsed.duration;
           if (parsed.resolution) resolution = parsed.resolution;
           if (parsed.clientPollMode) clientPollMode = true;
@@ -421,6 +442,7 @@ async function handleChatCompletions(request, apiKey) {
       } else {
           // 如果不是 JSON，嘗試從 body 中提取（支援 OpenAI 擴展參數）
           if (body.aspect_ratio) aspectRatio = body.aspect_ratio;
+          if (body.aspectRatio) aspectRatio = body.aspectRatio; // 雙重兼容
           if (body.duration) duration = body.duration;
           if (body.resolution) resolution = body.resolution;
           if (body.input_video_url) referenceUrl = body.input_video_url;
@@ -439,7 +461,7 @@ async function handleChatCompletions(request, apiKey) {
 
       try {
           const result = await performGeneration(prompt, aspectRatio, duration, resolution, modelKey, async (info) => {
-              if (!clientPollMode && body.stream) {
+              if (body.stream) {
                   if (info.status === 'submitting') {
                       await sendSSE(writer, encoder, requestId, "🚀 **正在初始化生成任務...**\n", true);
                   } else if (info.status === 'processing') {
@@ -463,7 +485,7 @@ async function handleChatCompletions(request, apiKey) {
 <video 
   width="100%" 
   controls
-  poster="https://via.placeholder.com/800x450/4a6fa5/ffffff?text=視頻生成完成" 
+  poster="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDUwIiB2aWV3Qm94PSIwIDAgODAwIDQ1MCI+PHJlY3Qgd2lkdGg9IjgwMCIgaGVpZ2h0PSI0NTAiIGZpbGw9IiM0YTZmYTUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiNmZmZmZmYiPuimlueZqeeUn+aIkOWujOaIkDwvdGV4dD48L3N2Zz4=" 
   style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); margin: 20px 0;"
   preload="metadata"
   onerror="this.parentElement.innerHTML='<p style=\\'color:#e74c3c;padding:40px\\'>視頻加載失敗，請檢查鏈接有效性或網絡連接。</p>'">
@@ -1740,8 +1762,8 @@ function handleUI(request, apiKey) {
 
     function extendVideo(url) {
       uploadedImageUrl = url;
-      // 顯示預覽（若是影片，暫時使用佔位圖或直接顯示 URL）
-      document.getElementById('preview-img').src = 'https://via.placeholder.com/800x450/2563eb/ffffff?text=Video+Reference+Active';
+      // 使用內嵌的 SVG Data URI 替代外部 placeholder 服務，解決載入失敗問題
+      document.getElementById('preview-img').src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDUwIiB2aWV3Qm94PSIwIDAgODAwIDQ1MCI+PHJlY3Qgd2lkdGg9IjgwMCIgaGVpZ2h0PSI0NTAiIGZpbGw9IiMyNTYzZWIiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiNmZmZmZmYiPlZpZGVvIFJlZmVyZW5jZSBBY3RpdmU8L3RleHQ+PC9zdmc+';
       document.getElementById('preview-box').style.display = 'block';
       document.querySelector('#drop-zone p').style.display = 'none';
       document.querySelector('#drop-zone i').style.display = 'none';
@@ -1810,6 +1832,7 @@ function handleUI(request, apiKey) {
             role: 'user',
             content: JSON.stringify({
               prompt: task.prompt,
+              aspect_ratio: task.ratio,
               aspectRatio: task.ratio,
               duration: task.duration,
               resolution: task.resolution,
@@ -1837,17 +1860,30 @@ function handleUI(request, apiKey) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
-          if (match) { realId = match[1]; uid = match[2]; break; }
+          // 更魯棒的正則匹配，確保能從串流內容中提取任務 ID
+          const match = buffer.match(/TASK_ID:([^|\\\]]+)\|UID:([^|\\\]]+)/);
+          if (match) { 
+            realId = match[1]; 
+            uid = match[2]; 
+            break; 
+          }
         }
 
-        if (realId) startPolling(task, realId, uid);
-        else throw new Error('No task ID');
+        if (realId) {
+          startPolling(task, realId, uid);
+        } else {
+          // 檢查 buffer 中是否有錯誤訊息
+          if (buffer.includes('**错误**') || buffer.includes('error')) {
+             const errorMatch = buffer.match(/\*\*错误\*\*: (.*)/) || buffer.match(/"message":"(.*?)"/);
+             throw new Error(errorMatch ? errorMatch[1] : 'Task ID not found in stream');
+          }
+          throw new Error('No task ID received from stream');
+        }
 
       } catch (e) {
         task.status = 'failed';
         renderGallery();
-        showToast(strings.gen_failed);
+        showToast(strings.gen_failed + ": " + e.message);
       }
     }
 
