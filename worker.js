@@ -1209,6 +1209,7 @@ function handleUI(request, apiKey) {
       object-fit: cover;
       border-radius: var(--radius);
       border: 1px solid var(--border-color);
+      background: #2563eb; /* 藍色背景作為圖片加載失敗時的底色 */
     }
     .btn-remove-img {
       position: absolute; top: 6px; right: 6px;
@@ -1382,7 +1383,7 @@ function handleUI(request, apiKey) {
           <i class="fas fa-cloud-arrow-up"></i>
           <p data-i18n="upload_hint">Click or drag to upload</p>
           <div class="preview-box" id="preview-box">
-            <img src="" class="preview-img" id="preview-img">
+            <img src="" class="preview-img" id="preview-img" onerror="this.style.display='none'; this.parentElement.style.background='#2563eb';">
             <button class="btn-remove-img" onclick="removeImage(event)"><i class="fas fa-times"></i></button>
           </div>
         </div>
@@ -1652,6 +1653,9 @@ function handleUI(request, apiKey) {
     function removeImage(e) {
       e.stopPropagation();
       uploadedImageUrl = null;
+      const previewImg = document.getElementById('preview-img');
+      previewImg.style.display = 'block'; // 恢復顯示，防止之前因 onerror 被隱藏
+      previewImg.src = '';
       document.getElementById('preview-box').style.display = 'none';
       document.querySelector('#drop-zone p').style.display = 'block';
       document.querySelector('#drop-zone i').style.display = 'block';
@@ -1677,13 +1681,14 @@ function handleUI(request, apiKey) {
 
     function extendVideo(url) {
       uploadedImageUrl = url;
-      // 顯示預覽（若是影片，暫時使用佔位圖或直接顯示 URL）
-      document.getElementById('preview-img').src = 'https://via.placeholder.com/800x450/2563eb/ffffff?text=Video+Reference+Active';
+      // 使用穩定可靠的佔位圖服務，並標明為影片參考
+      document.getElementById('preview-img').src = 'https://placehold.co/800x450/2563eb/FFF?text=Video+Reference+Active';
       document.getElementById('preview-box').style.display = 'block';
       document.querySelector('#drop-zone p').style.display = 'none';
       document.querySelector('#drop-zone i').style.display = 'none';
       updateModeDisplay();
       document.getElementById('prompt').focus();
+      showToast(I18N[currentLang].mode_v2v);
     }
 
     // --- Tasks ---
