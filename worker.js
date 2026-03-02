@@ -30,9 +30,10 @@ const CONFIG = {
       "grok-video-normal": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
       "grok-video-fun": { type: "video", mode: "fun", channel: "GROK_IMAGINE", pageId: 886 },
       "grok-video-spicy": { type: "video", mode: "spicy", channel: "GROK_IMAGINE", pageId: 886 },
-      // 图生视频
+      "grok-imagine-video": { type: "video", model: "grok-imagine", channel: "GROK_IMAGINE", pageId: 886 },
+      // 圖生視頻
       "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 900 },
-      // 图像模型
+      // 圖像模型
       "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 }
   },
   DEFAULT_MODEL: "grok-video-normal",
@@ -145,17 +146,31 @@ function getCommonHeaders(uniqueId = null) {
 /**
 * 核心：执行视频生成任务
 */
-async function performGeneration(prompt, aspectRatio, modelKey, onProgress, clientPollMode = false) {
+async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false) {
   const uniqueId = generateUniqueId();
   const headers = getCommonHeaders(uniqueId);
 
   const modelConfig = CONFIG.MODEL_MAP[modelKey] || CONFIG.MODEL_MAP[CONFIG.DEFAULT_MODEL];
 
-  // 严格校验比例
+  // 嚴格校驗比例
   const validRatios = ["1:1", "3:2", "2:3", "16:9", "9:16"];
   let finalRatio = aspectRatio;
   if (!validRatios.includes(finalRatio)) {
       finalRatio = "1:1";
+  }
+
+  // 驗證時長 (支援 5, 8, 10)
+  const validDurations = [5, 8, 10];
+  let finalDuration = parseInt(duration) || 5;
+  if (!validDurations.includes(finalDuration)) {
+      finalDuration = 5;
+  }
+
+  // 驗證解析度 (支援 720p, 1080p)
+  const validResolutions = ["720p", "1080p"];
+  let finalResolution = resolution || "720p";
+  if (!validResolutions.includes(finalResolution)) {
+      finalResolution = "720p";
   }
 
   const payload = {
@@ -169,24 +184,31 @@ async function performGeneration(prompt, aspectRatio, modelKey, onProgress, clie
       "model": "grok-imagine",
       "videoType": "text-to-video",
       "aspectRatio": finalRatio,
+      "duration": finalDuration,
+      "resolution": finalResolution,
       "imageUrls": []
   };
 
   if (modelConfig.type === 'video') {
       payload.mode = modelConfig.mode;
 
-      // 检查是否有图片URL (Prompt 中传来的 JSON 格式)
+      // 檢查是否有圖片URL (Prompt 中傳來的 JSON 格式)
       try {
-          // 尝试解析 prompt 是否为 JSON（包含 Img2Vid 参数）
+          // 嘗試解析 prompt 是否為 JSON（包含 Img2Vid 參數）
           if (prompt.trim().startsWith('{')) {
               const jsonPrompt = JSON.parse(prompt);
               if (jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0) {
                   payload.prompt = jsonPrompt.prompt || "Animate this";
                   payload.imageUrls = jsonPrompt.imageUrls;
                   payload.videoType = "image-to-video";
-                  payload.watermarkFlag = false; // 用户要求去水印
-                  // Log hints that img2vid uses pageId 900 like text-to-image, 
-                  // but the key `grok-video-image` is already set to 900 in CONFIG.
+                  payload.watermarkFlag = false; // 用戶要求去水印
+                  // 這裡可以覆蓋參數，如果 JSON 中提供了
+                  if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
+                      payload.duration = parseInt(jsonPrompt.duration);
+                  }
+                  if (jsonPrompt.resolution && validResolutions.includes(jsonPrompt.resolution)) {
+                      payload.resolution = jsonPrompt.resolution;
+                  }
               }
           }
       } catch (e) {
@@ -216,7 +238,7 @@ async function performGeneration(prompt, aspectRatio, modelKey, onProgress, clie
 
   const createData = await createRes.json();
   if (createData.code !== 200 || !createData.data) {
-      // 传递原始错误码给前端处理
+      // 传递原始 error code 给前端处理
       if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
           throw new Error(`HC_VERIFICATION_REQUIRED`);
       }
@@ -306,6 +328,8 @@ async function handleChatCompletions(request, apiKey) {
 
   let prompt = lastMsg;
   let aspectRatio = "1:1";
+  let duration = 5;
+  let resolution = "720p";
   let clientPollMode = false;
 
   try {
@@ -313,10 +337,17 @@ async function handleChatCompletions(request, apiKey) {
           const parsed = JSON.parse(lastMsg);
           prompt = parsed.prompt || prompt;
           if (parsed.aspectRatio) aspectRatio = parsed.aspectRatio;
+          if (parsed.duration) duration = parsed.duration;
+          if (parsed.resolution) resolution = parsed.resolution;
           if (parsed.clientPollMode) clientPollMode = true;
           if (parsed.model) {
               if (CONFIG.MODEL_MAP[parsed.model]) modelKey = parsed.model;
           }
+      } else {
+          // 如果不是 JSON，嘗試從 body 中提取（支援 OpenAI 擴展參數）
+          if (body.aspect_ratio) aspectRatio = body.aspect_ratio;
+          if (body.duration) duration = body.duration;
+          if (body.resolution) resolution = body.resolution;
       }
   } catch (e) { }
 
@@ -330,61 +361,63 @@ async function handleChatCompletions(request, apiKey) {
       const proxyBase = `${workerUrl.protocol}//${workerUrl.host}/v1/proxy/download?url=`;
 
       try {
-          const result = await performGeneration(prompt, aspectRatio, modelKey, async (info) => {
+          const result = await performGeneration(prompt, aspectRatio, duration, resolution, modelKey, async (info) => {
               if (!clientPollMode && body.stream) {
                   if (info.status === 'submitting') {
-                      await sendSSE(writer, encoder, requestId, "🚀 **正在初始化生成任务...**\n", true);
+                      await sendSSE(writer, encoder, requestId, "🚀 **正在初始化生成任務...**\n", true);
                   } else if (info.status === 'processing') {
                       const barSize = 20;
                       const progress = info.progress || 0;
                       const filled = Math.round((progress / 100) * barSize);
                       const bar = '█'.repeat(filled) + '░'.repeat(barSize - filled);
-                      await sendSSE(writer, encoder, requestId, `⏳ 视频渲染中: [${bar}] ${progress}%\n`, true);
+                      await sendSSE(writer, encoder, requestId, `⏳ 視頻渲染中: [${bar}] ${progress}%\n`, true);
                   }
               }
           }, clientPollMode);
 
           if (result.mode === 'async') {
-              await sendSSE(writer, encoder, requestId, `\n\n✅ **任务已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
+              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
           } else {
               const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
               const finalMarkdown = `
-# 🎬 视频展示
+# 🎬 視頻展示
 
 <div align="center">
 <video 
   width="100%" 
   controls
-  poster="https://via.placeholder.com/800x450/4a6fa5/ffffff?text=视频生成完成" 
+  poster="https://via.placeholder.com/800x450/4a6fa5/ffffff?text=視頻生成完成" 
   style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); margin: 20px 0;"
   preload="metadata"
-  onerror="this.parentElement.innerHTML='<p style=\\'color:#e74c3c;padding:40px\\'>视频加载失败，请检查链接有效性或网络连接。</p>'">
+  onerror="this.parentElement.innerHTML='<p style=\\'color:#e74c3c;padding:40px\\'>視頻加載失敗，請檢查鏈接有效性或網絡連接。</p>'">
   
-  <!-- 主要视频源 -->
+  <!-- 主要視頻源 -->
   <source src="${result.videoUrl}" type="video/mp4">
   
-  <!-- 浏览器不支持时的提示 -->
+  <!-- 瀏覽器不支持時的提示 -->
   <p>
-    您的浏览器不支持 HTML5 视频。<br>
-    请 <a href="${proxyDownloadUrl}" target="_blank" download>点击下载视频</a> 或在现代浏览器中查看。
+    您的瀏覽器不支持 HTML5 視頻。<br>
+    請 <a href="${proxyDownloadUrl}" target="_blank" download>點擊下載視頻</a> 或在現代瀏覽器中查看。
   </p>
 </video>
 
 <p style="margin-top: 8px; color: #7f8c8d; font-size: 0.9em; font-style: italic;">
-  🎥 点击播放按钮观看视频
+  🎥 點擊播放按鈕觀看視頻
 </p>
 </div>
 
-## 备用下载链接
-如果上方视频无法播放，请：
-1. [📥 点击通过代理下载视频](${proxyDownloadUrl})
-2. [🔗 点击直接下载视频](${result.videoUrl})
-3. 使用现代浏览器（Chrome/Firefox/Edge/Safari）
+## 備用下載鏈接
+如果上方視頻無法播放，請：
+1. [📥 點擊通過代理下載視頻](${proxyDownloadUrl})
+2. [🔗 點擊直接下載視頻](${result.videoUrl})
+3. 使用現代瀏覽器（Chrome/Firefox/Edge/Safari）
 
-**任务详情:**
+**任務詳情:**
 - **模型:** \`${modelKey}\`
 - **比例:** \`${aspectRatio}\`
-- **提示词:** \`${prompt.replace(/\n/g, ' ')}\`
+- **時長:** \`${duration}s\`
+- **解析度:** \`${resolution}\`
+- **提示詞:** \`${prompt.replace(/\n/g, ' ')}\`
 `;
               await sendSSE(writer, encoder, requestId, finalMarkdown);
           }
@@ -638,7 +671,7 @@ async function encryptData(data) {
 }
 // -----------------------------
 
-// --- [第四部分: 开发者驾驶舱 UI (Cyberpunk V4)] ---
+// --- [第四部分: 專業工作室 UI (Studio Edition)] ---
 function handleUI(request, apiKey) {
   const origin = new URL(request.url).origin;
   const html = `<!DOCTYPE html>
@@ -646,1096 +679,1061 @@ function handleUI(request, apiKey) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CYBERPUNK STUDIO | XIMAGINE ENGINE</title>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+  <title>XIMAGINE STUDIO | Professional AI Video Production</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     :root {
-      /* Default Warm Theme - 简约暖色 */
-      --neon-blue: #d4a574;
-      --neon-pink: #c9a86c;
-      --neon-yellow: #8b7355;
-      --neon-purple: #a67c52;
-      --bg-dark: #f5f0eb;
-      --panel: rgba(255, 255, 255, 0.95);
-      --border: rgba(212, 165, 116, 0.3);
-      --glass: rgba(212, 165, 116, 0.05);
-      --text: #5a4a3a;
-      --text-secondary: #8b7355;
-      --bg-img: none;
-      --card-gradient: linear-gradient(135deg, rgba(212, 165, 116, 0.08) 0%, rgba(201, 168, 108, 0.04) 100%);
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg-main: #f8fafc;
+      --bg-sidebar: #ffffff;
+      --text-main: #1e293b;
+      --text-secondary: #64748b;
+      --border-color: #e2e8f0;
+      --card-bg: #ffffff;
+      --input-bg: #ffffff;
+      --accent: #3b82f6;
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --radius: 8px;
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
     }
 
-    [data-theme="cyberpunk"] {
-      --neon-blue: #00f5ff;
-      --neon-pink: #ff00ff;
-      --neon-yellow: #ffd700;
-      --neon-purple: #9d4edd;
-      --bg-dark: #0a0a0f;
-      --panel: rgba(15, 15, 25, 0.92);
-      --border: rgba(0, 245, 255, 0.3);
-      --glass: rgba(255, 255, 255, 0.08);
-      --text: #ffffff;
-      --text-secondary: #a0a0b0;
-      --bg-img: url('https://w.wallhaven.cc/full/7p/wallhaven-7p39gy.jpg');
-      --card-gradient: linear-gradient(135deg, rgba(0, 245, 255, 0.1) 0%, rgba(255, 0, 255, 0.05) 100%);
+    [data-theme="dark"] {
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
+      --bg-main: #0f172a;
+      --bg-sidebar: #1e293b;
+      --text-main: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --border-color: #334155;
+      --card-bg: #1e293b;
+      --input-bg: #0f172a;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
     }
 
-    [data-theme="matrix"] {
-      --neon-blue: #00ff41;
-      --neon-pink: #008f11;
-      --neon-yellow: #00ff00;
-      --neon-purple: #003b00;
-      --bg-dark: #000000;
-      --panel: rgba(0, 20, 0, 0.95);
-      --border: rgba(0, 255, 65, 0.4);
-      --glass: rgba(0, 50, 0, 0.15);
-      --text: #00ff41;
-      --text-secondary: #008f11;
-      --bg-img: url('https://w.wallhaven.cc/full/v9/wallhaven-v9kw3l.jpg');
-      --card-gradient: linear-gradient(135deg, rgba(0, 255, 65, 0.1) 0%, rgba(0, 143, 17, 0.05) 100%);
-    }
-
-    [data-theme="golden"] {
-      --neon-blue: #ff6b6b;
-      --neon-pink: #ffd93d;
-      --neon-yellow: #fff;
-      --neon-purple: #ff8c42;
-      --bg-dark: #1a1000;
-      --panel: rgba(30, 20, 0, 0.92);
-      --border: rgba(255, 215, 0, 0.4);
-      --glass: rgba(255, 215, 0, 0.08);
-      --text: #ffd700;
-      --text-secondary: #b8860b;
-      --bg-img: url('https://w.wallhaven.cc/full/ey/wallhaven-ey3o2k.jpg');
-      --card-gradient: linear-gradient(135deg, rgba(255, 107, 107, 0.1) 0%, rgba(255, 217, 61, 0.05) 100%);
-    }
-
-     [data-theme="clean"] {
-      --neon-blue: #4a90e2;
-      --neon-pink: #50c878;
-      --neon-yellow: #2c3e50;
-      --neon-purple: #9b59b6;
-      --bg-dark: #f8f9fa;
-      --panel: rgba(255, 255, 255, 0.95);
-      --border: rgba(74, 144, 226, 0.3);
-      --glass: rgba(0, 0, 0, 0.03);
-      --text: #2c3e50;
-      --text-secondary: #7f8c8d;
-      --bg-img: none;
-      --card-gradient: linear-gradient(135deg, rgba(74, 144, 226, 0.05) 0%, rgba(80, 200, 120, 0.03) 100%);
-    }
-
-    body[data-theme="clean"] { background-color: #f8f9fa; color: #2c3e50; }
-    [data-theme="clean"] .brand { color: #2c3e50; text-shadow: none; }
-    [data-theme="clean"] textarea { background: #fff; color: #2c3e50; border: 1px solid #ddd; }
-    [data-theme="clean"] select, [data-theme="clean"] input { background: #fff; color: #2c3e50; border: 1px solid #ddd; }
-
-    
-    * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--neon-blue) #111; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0; padding: 0;
-      background: var(--bg-img) center/cover no-repeat fixed;
-      background-color: var(--bg-dark);
-      color: var(--text);
-      font-family: 'Rajdhani', sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-main);
       height: 100vh;
       display: flex;
       overflow: hidden;
-      backdrop-filter: brightness(0.4);
-      transition: background 0.5s;
+      transition: background-color 0.3s, color 0.3s;
     }
 
     /* Sidebar */
     .sidebar {
-      width: 380px;
-      background: var(--panel);
-      border-right: 1px solid var(--border);
+      width: 400px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
-      padding: 20px;
-      z-index: 10;
-      box-shadow: 2px 0 15px rgba(0,0,0,0.1);
+      z-index: 100;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.02);
       overflow-y: auto;
+      scrollbar-width: none;
     }
+    .sidebar::-webkit-scrollbar { display: none; }
 
-    .brand {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 24px;
-      color: var(--text);
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      margin-bottom: 20px;
+    .header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--primary);
       display: flex;
       align-items: center;
       gap: 10px;
-      justify-content: space-between;
     }
-    .brand-text { display: flex; align-items: center; gap: 10px; }
-    .brand span { font-size: 10px; color: #fff; background: var(--neon-blue); padding: 2px 6px; border-radius: 2px; letter-spacing: 0; vertical-align: middle; }
+    .logo i { font-size: 1.5rem; }
 
-    .theme-toggle-btn {
-      background: var(--neon-blue);
-      border: none;
-      color: #fff;
-      width: 32px; height: 32px;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: 0.3s;
-    }
-    .theme-toggle-btn:hover { opacity: 0.8; transform: scale(1.1); }
-
-    .section-title {
-      color: var(--text);
-      font-size: 14px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 12px;
-      border-bottom: 2px solid var(--border);
-      padding-bottom: 5px;
-      font-weight: 600;
-    }
-
-    .control-group { margin-bottom: 25px; }
-
-    .btn-mode {
+    .header-actions {
       display: flex;
-      gap: 5px;
-      background: #111;
-      padding: 4px;
-      border-radius: 4px;
-      border: 1px solid #333;
+      gap: 8px;
     }
-    .btn-mode button {
-      flex: 1;
-      background: transparent;
-      border: none;
-      color: #888;
-      padding: 8px;
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius);
       cursor: pointer;
-      font-family: 'Rajdhani', sans-serif;
-      font-weight: bold;
-      transition: 0.3s;
-      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
     }
-    .btn-mode button.active {
-      background: var(--neon-blue);
-      color: #000;
-      box-shadow: 0 0 10px var(--neon-blue);
-    }
-
-    label { display: block; font-size: 13px; color: var(--text); margin-bottom: 6px; font-weight: 500; }
-    select, input, textarea {
-      width: 100%;
-      background: #fff;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 10px;
-      font-family: 'Rajdhani', sans-serif;
-      border-radius: 6px;
-      transition: 0.3s;
-    }
-    select:focus, input:focus, textarea:focus {
-      border-color: var(--neon-blue);
-      outline: none;
-      box-shadow: 0 0 8px rgba(212, 165, 116, 0.3);
+    .icon-btn:hover {
+      background: var(--bg-main);
+      color: var(--text-main);
+      border-color: var(--primary);
     }
 
-    .btn-gen {
-      width: 100%;
-      background: linear-gradient(90deg, var(--neon-blue), var(--neon-pink));
-      border: none;
-      padding: 15px;
-      font-family: 'Orbitron', sans-serif;
-      font-weight: bold;
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-      border-radius: 8px;
-      transition: 0.3s;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      box-shadow: 0 4px 12px rgba(212, 165, 116, 0.3);
-      margin-top: auto;
-    }
-    .btn-gen:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(212, 165, 116, 0.4); }
-    .btn-gen:disabled { filter: grayscale(0.8); cursor: not-allowed; transform: none; }
-
-    /* Main Area */
-    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-    
-    .gallery {
-      flex: 1;
-      padding: 30px;
-      overflow-y: auto;
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 25px;
-      align-content: start;
-    }
-
-    .gallery-item {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      overflow: hidden;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      backdrop-filter: blur(15px);
-      animation: fadeIn 0.6s ease;
+    .sidebar-content {
+      padding: 24px;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      gap: 28px;
     }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .gallery-item:hover { 
-      transform: translateY(-8px) scale(1.02); 
-      border-color: var(--neon-blue); 
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 245, 255, 0.2);
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    
-    .media-container { 
-      width: 100%; 
-      aspect-ratio: 16/9; 
-      background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      overflow: hidden; 
-      position: relative;
-    }
-    .media-container img, .media-container video { 
-      width: 100%; 
-      height: 100%; 
-      object-fit: cover;
-      transition: transform 0.4s ease;
-    }
-    .gallery-item:hover .media-container img, 
-    .gallery-item:hover .media-container video {
-      transform: scale(1.05);
-    }
-    
-    .item-info { 
-      padding: 18px; 
-      font-size: 13px; 
-      background: var(--card-gradient);
-      flex: 1; 
-      display: flex; 
-      flex-direction: column; 
-      justify-content: space-between;
-      border-top: 1px solid var(--border);
-    }
-    .item-prompt { 
-      color: var(--text); 
-      font-size: 14px; 
-      line-height: 1.5; 
-      margin-bottom: 12px; 
-      overflow: hidden; 
-      text-overflow: ellipsis; 
-      display: -webkit-box; 
-      -webkit-line-clamp: 2; 
-      -webkit-box-orient: vertical;
-      font-weight: 500;
-    }
-    .item-meta { 
-      display: flex; 
-      flex-wrap: wrap;
-      gap: 8px;
-      color: var(--text-secondary); 
-      font-size: 12px; 
-      margin-top: auto;
-    }
-    .meta-tag {
-      background: rgba(212, 165, 116, 0.1);
-      padding: 4px 10px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      display: inline-flex;
+    .section-header {
+      display: flex;
       align-items: center;
+      justify-content: space-between;
+    }
+    .section-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .field-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    /* Segmented Control */
+    .segmented-control {
+      display: flex;
+      background: var(--bg-main);
+      padding: 4px;
+      border-radius: var(--radius);
       gap: 4px;
     }
-    .meta-tag i {
-      font-size: 10px;
-      color: var(--neon-blue);
+    .segment {
+      flex: 1;
+      border: none;
+      background: none;
+      color: var(--text-secondary);
+      padding: 8px 4px;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: calc(var(--radius) - 2px);
+      transition: 0.2s;
+      white-space: nowrap;
+    }
+    .segment.active {
+      background: var(--bg-sidebar);
+      color: var(--primary);
+      box-shadow: var(--shadow);
     }
 
-    .item-actions {
+    select, textarea, input {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px 12px;
+      font-size: 0.875rem;
+      border-radius: var(--radius);
+      outline: none;
+      transition: 0.2s;
+    }
+    select:focus, textarea:focus, input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+      line-height: 1.5;
+      font-family: inherit;
+    }
+
+    .btn-generate {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: 0.2s;
+      margin-top: 12px;
+    }
+    .btn-generate:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    .btn-generate:active { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* Main Area */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-header {
+      padding: 20px 32px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .main-title {
+      font-weight: 600;
+      font-size: 1.125rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 24px;
+    }
+    .tab {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 0.875rem;
+      padding: 4px 0;
+      cursor: pointer;
+      position: relative;
+      transition: 0.2s;
+    }
+    .tab.active { color: var(--primary); }
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -21px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--primary);
+    }
+
+    .content-area {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.05); }
+
+    .card-media {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card-media video, .card-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .card-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-prompt {
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--text-main);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+    }
+    .card-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .card-meta span { display: flex; align-items: center; gap: 4px; }
+
+    .card-actions {
       display: flex;
       gap: 8px;
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border);
     }
-
-    .action-btn {
-      flex: 1;
-      padding: 6px 12px;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
+    .btn-action {
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
       cursor: pointer;
       transition: 0.2s;
       display: flex;
       align-items: center;
-      justify-content: center;
       gap: 4px;
-      font-family: 'Rajdhani', sans-serif;
+    }
+    .btn-action:hover {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    .btn-action.delete:hover {
+      background: var(--error);
+      border-color: var(--error);
     }
 
-    .btn-download {
-      background: var(--neon-blue);
-      color: #fff;
+    /* Loading Overlay */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px; color: white;
     }
-    .btn-download:hover { opacity: 0.9; }
-
-    .btn-delete {
-      background: #ff4757;
-      color: #fff;
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
     }
-    .btn-delete:hover { opacity: 0.9; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    .video-error {
-      color: orange;
+    .progress-container {
+      width: 140px;
+      height: 4px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* Upload Area */
+    .upload-area {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--radius);
       padding: 20px;
       text-align: center;
+      cursor: pointer;
+      transition: 0.2s;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px; color: var(--text-secondary);
+      position: relative;
+    }
+    .upload-area:hover { border-color: var(--primary); background: rgba(37, 99, 235, 0.02); }
+    .upload-area i { font-size: 1.5rem; }
+    .upload-area p { font-size: 0.75rem; }
+    
+    .preview-box {
+      position: relative;
+      width: 100%;
+      display: none;
+    }
+    .preview-img {
+      width: 100%;
+      max-height: 180px;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 1px solid var(--border-color);
+    }
+    .btn-remove-img {
+      position: absolute; top: 6px; right: 6px;
+      background: var(--error); color: white; border: none;
+      width: 24px; height: 24px; border-radius: 50%;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
-    /* Task Card Specifics */
-    .task-status-bar {
-        position: absolute; bottom: 0; left: 0; width: 100%;
-        height: 6px; background: rgba(255,255,255,0.1);
-        border-radius: 0 0 16px 16px;
-        overflow: hidden;
-    }
-    .task-progress-fill {
-        height: 100%; 
-        background: linear-gradient(90deg, var(--neon-blue), var(--neon-pink));
-        width: 0%; 
-        transition: width 0.3s ease;
-        box-shadow: 0 0 15px var(--neon-blue);
-        position: relative;
-    }
-    .task-progress-fill::after {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-        animation: shimmer 2s infinite;
-    }
-    @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
-    }
-    .task-overlay {
-        position: absolute; inset: 0;
-        background: rgba(0,0,0,0.7);
-        backdrop-filter: blur(8px);
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        gap: 12px;
-    }
-    .task-spinner {
-        width: 40px; height: 40px;
-        border: 3px solid var(--neon-blue);
-        border-top-color: transparent;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
-    }
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-
-    /* Toast */
+    /* Tooltip & Toast */
     .toast {
-      position: fixed; top: 20px; right: 20px;
-      background: var(--panel); border-left: 4px solid var(--neon-blue);
-      padding: 15px; color: var(--text); z-index: 200;
-      transform: translateX(120%); transition: 0.3s;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      border-radius: 4px;
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--text-main); color: var(--bg-sidebar);
+      padding: 12px 20px; border-radius: var(--radius);
+      font-size: 0.875rem; font-weight: 500;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+      transform: translateY(100px); opacity: 0;
+      transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      z-index: 1000;
     }
-    .toast.show { transform: translateX(0); }
+    .toast.show { transform: translateY(0); opacity: 1; }
 
-    /* Upload Zone */
-    .upload-zone {
-        border: 2px dashed var(--border);
-        border-radius: 8px;
-        padding: 20px;
-        text-align: center;
-        margin-bottom: 10px;
-        transition: 0.3s;
-        cursor: pointer;
-        background: rgba(255, 255, 255, 0.5);
-        position: relative;
-        min-height: 100px;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
+    /* Empty State */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-secondary); gap: 16px;
     }
-    .upload-zone:hover, .upload-zone.dragover { border-color: var(--neon-blue); background: rgba(255, 255, 255, 0.8); }
-    
-    .preview-wrapper { position: relative; display: none; margin-top: 10px; width: 100%; }
-    .upload-preview { max-height: 150px; max-width: 100%; border-radius: 6px; border: 2px solid var(--neon-blue); }
-    .btn-delete-img {
-        position: absolute; top: -8px; right: -8px;
-        background: linear-gradient(135deg, #ff4757, #ff3838);
-        color: #fff;
-        border: 2px solid #fff;
-        border-radius: 50%;
-        width: 28px; height: 28px;
-        cursor: pointer;
-        display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 4px 12px rgba(255, 71, 87, 0.5);
-        transition: all 0.3s ease;
-        z-index: 10;
-    }
-    .btn-delete-img:hover { 
-        transform: scale(1.15) rotate(90deg); 
-        background: linear-gradient(135deg, #ff6b81, #ff4757);
-        box-shadow: 0 6px 16px rgba(255, 71, 87, 0.7);
-    }
-    .btn-delete-img:active {
-        transform: scale(0.95) rotate(90deg);
-    }
+    .empty-state i { font-size: 3rem; opacity: 0.2; }
 
-    .upload-info { font-size: 12px; color: #888; pointer-events: none; }
-    .mode-hint { font-size: 12px; color: var(--text-secondary); margin-bottom: 20px; text-align: center; padding: 8px; background: rgba(212, 165, 116, 0.1); border-radius: 4px; }
-    
-    .char-counter {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: var(--text-secondary);
-      margin-top: 8px;
-      padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.5);
-      border-radius: 6px;
-      border: 1px solid var(--border);
+    /* API Info */
+    .api-info {
+      background: var(--bg-main);
+      padding: 16px; border-radius: var(--radius);
+      display: flex; flex-direction: column; gap: 12px; font-size: 0.75rem;
     }
-    .char-counter.warning { color: #ff9800; border-color: #ff9800; background: rgba(255, 152, 0, 0.1); }
-    .char-counter.error { color: #f44336; border-color: #f44336; background: rgba(244, 67, 54, 0.1); }
-    .char-count { font-family: monospace; font-size: 14px; font-weight: bold; }
-    .char-limit { font-size: 11px; opacity: 0.7; }
-    
-    /* Info Card */
-    .info-card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 20px;
-      font-size: 12px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    .api-item { display: flex; flex-direction: column; gap: 4px; }
+    .api-label { font-weight: 600; color: var(--text-main); }
+    .api-value-box {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-sidebar); padding: 6px 10px;
+      border-radius: 4px; border: 1px solid var(--border-color);
     }
-    .info-row { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-    .info-row:last-child { margin-bottom: 0; }
-    .info-label { color: var(--text); font-weight: 600; font-size: 13px; }
-    .info-value { color: var(--text-secondary); font-family: monospace; font-size: 11px; word-break: break-all; max-width: 200px; }
-    
-    .copy-btn {
-      background: var(--neon-blue); border: none; color: #fff;
-      border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer;
-      transition: 0.2s; margin-left: 8px;
+    .api-value {
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      flex: 1;
     }
-    .copy-btn:hover { opacity: 0.9; transform: scale(1.05); }
+    .btn-copy { background: none; border: none; color: var(--primary); cursor: pointer; padding: 2px; }
 
+    /* Char Counter */
+    .char-count-wrap {
+      display: flex; justify-content: flex-end; font-size: 0.75rem;
+      color: var(--text-secondary); margin-top: 4px;
+    }
+    .char-count-wrap.warning { color: var(--warning); }
+    .char-count-wrap.error { color: var(--error); }
+
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; max-height: 50vh; }
+    }
   </style>
 </head>
-<body>
+<body data-theme="light">
 
-  <!-- Sidebar Control Panel -->
-  <div class="sidebar">
-      <div class="brand">
-          <div class="brand-text">Ximagine-2api-Pro <span>v${CONFIG.PROJECT_VERSION}</span></div>
-          <button class="theme-toggle-btn" onclick="toggleTheme()" title="切换主题"><i class="fas fa-palette"></i></button>
+  <aside class="sidebar">
+    <div class="header">
+      <div class="logo">
+        <i class="fas fa-wand-magic-sparkles"></i>
+        <span>Studio</span>
       </div>
-      
-      <div class="control-group">
-        <div class="info-card">
-             <div class="info-row">
-                 <span class="info-label">API 地址</span>
-                 <span class="info-value" id="api-origin">${origin}</span>
-                 <button class="copy-btn" onclick="copyApiOrigin()">复制</button>
-             </div>
-             <div class="info-row">
-                 <span class="info-label">API 密钥</span>
-                 <span class="info-value" id="api-key">${apiKey}</span>
-                 <button class="copy-btn" onclick="copyApiKey()">复制</button>
-             </div>
-        </div>
-        </div>
-        <div style="font-size:12px; color:#ff4444; margin-bottom:20px; padding:10px; border:1px solid #ff4444; border-radius:5px; background:rgba(255, 68, 68, 0.1);">
-            ⚠️ <b>注意：</b> 本站不提供历史记录保存服务，刷新或关闭页面后所有数据将丢失，请生成后及时下载保存！
-        </div>
+      <div class="header-actions">
+        <button class="icon-btn" onclick="toggleLanguage()" title="Switch Language" id="lang-btn">
+          <i class="fas fa-language"></i>
+        </button>
+        <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="theme-btn">
+          <i class="fas fa-moon"></i>
+        </button>
+      </div>
+    </div>
 
-
-      <div class="control-group">
-           <div class="section-title">生成模式</div>
-           <div class="btn-mode">
-             <button class="active" style="width:100%" id="tab-video">视频生成</button>
-           </div>
+    <div class="sidebar-content">
+      <!-- API Access -->
+      <div class="section">
+        <div class="section-title" data-i18n="api_access">API Access</div>
+        <div class="api-info">
+          <div class="api-item">
+            <span class="api-label" data-i18n="api_endpoint">Endpoint</span>
+            <div class="api-value-box">
+              <span class="api-value" id="api-origin">${origin}</span>
+              <button class="btn-copy" onclick="copyApiOrigin()"><i class="far fa-copy"></i></button>
+            </div>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api_key">API Key</span>
+            <div class="api-value-box">
+              <span class="api-value" id="api-key">${apiKey}</span>
+              <button class="btn-copy" onclick="copyApiKey()"><i class="far fa-copy"></i></button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="control-group">
-          <div class="section-title">参数设置</div>
-          
-          <label for="ratio">画面比例</label>
-          <select id="ratio">
-              <option value="1:1">1:1 (方形)</option>
-              <option value="16:9">16:9 (横屏)</option>
-              <option value="9:16">9:16 (竖屏)</option>
+      <!-- Video Settings -->
+      <div class="section">
+        <div class="section-title" data-i18n="settings">Settings</div>
+        
+        <div class="field">
+          <span class="field-label" data-i18n="aspect_ratio">Aspect Ratio</span>
+          <div class="segmented-control" id="ratio-control">
+            <button class="segment active" data-value="1:1">1:1</button>
+            <button class="segment" data-value="16:9">16:9</button>
+            <button class="segment" data-value="9:16">9:16</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="duration">Duration</span>
+          <div class="segmented-control" id="duration-control">
+            <button class="segment active" data-value="5">5s</button>
+            <button class="segment" data-value="8">8s</button>
+            <button class="segment" data-value="10">10s</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="resolution">Resolution</span>
+          <div class="segmented-control" id="res-control">
+            <button class="segment active" data-value="720p">720p</button>
+            <button class="segment" data-value="1080p">1080p</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="style">Visual Style</span>
+          <select id="video-mode">
+            <option value="normal" data-i18n="style_normal">Realistic</option>
+            <option value="fun" data-i18n="style_fun">Cartoon</option>
+            <option value="spicy" data-i18n="style_spicy">Dynamic</option>
           </select>
-
-          <div id="video-options">
-             <label for="video-mode" style="margin-top:10px">视频风格</label>
-             <select id="video-mode">
-                 <option value="normal">标准现实</option>
-                 <option value="fun">趣味卡通</option>
-                 <option value="spicy">激情模式</option>
-             </select>
-          </div>
+        </div>
       </div>
 
-      <div class="control-group" style="flex:1">
-          <div id="ref-image-group">
-              <div class="section-title">参考图片（可选）</div>
-              <div class="upload-zone" id="drop-zone">
-                  <div id="upload-placeholder">
-                      <div class="upload-info" id="upload-text"><i class="fas fa-cloud-upload-alt" style="font-size:24px;margin-bottom:5px"></i><br>点击或拖拽上传图片</div>
-                  </div>
-
-                  <div class="preview-wrapper" id="preview-wrapper">
-                      <img id="upload-preview" class="upload-preview">
-                      <button class="btn-delete-img" onclick="deleteImage(event)"><i class="fas fa-trash"></i></button>
-                  </div>
-
-
-              </div>
-              <div class="mode-hint" id="mode-hint">
-                  <i class="fas fa-info-circle"></i> 当前模式: 文生视频
-              </div>
+      <!-- Image Reference -->
+      <div class="section">
+        <div class="section-title" data-i18n="reference_image">Reference Image</div>
+        <div class="upload-area" id="drop-zone">
+          <i class="fas fa-cloud-arrow-up"></i>
+          <p data-i18n="upload_hint">Click or drag to upload</p>
+          <div class="preview-box" id="preview-box">
+            <img src="" class="preview-img" id="preview-img">
+            <button class="btn-remove-img" onclick="removeImage(event)"><i class="fas fa-times"></i></button>
           </div>
-          <input type="file" id="file-input" style="display:none" accept="image/*" onchange="handleFileSelect(this)">
-          
-          <div class="section-title">创意描述</div>
-          <textarea id="prompt" rows="4" maxlength="1800" placeholder="在此输入你的创意...
-例如：赛博朋克城市的雨夜，霓虹灯闪烁"></textarea>
-          <div class="char-counter" id="char-counter">
-              <span class="char-count"><span id="current-chars">0</span> / 1800</span>
-              <span class="char-limit">字符限制</span>
-          </div>
+        </div>
+        <input type="file" id="file-input" style="display:none" accept="image/*">
       </div>
 
-      <button class="btn-gen" id="btn-gen" onclick="submitTask()">
-          <i class="fas fa-play"></i> 开始生成
+      <!-- Prompt -->
+      <div class="section">
+        <div class="section-title" data-i18n="prompt">Prompt</div>
+        <div class="field">
+          <textarea id="prompt" data-i18n-placeholder="prompt_placeholder" placeholder="Describe your creative vision..."></textarea>
+          <div class="char-count-wrap" id="char-counter">
+            <span id="char-count">0</span>/1800
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-generate" id="btn-gen" onclick="submitTask()">
+        <i class="fas fa-play"></i>
+        <span data-i18n="generate">Generate Video</span>
       </button>
-      
-  </div>
+    </div>
+  </aside>
 
-  <!-- Main Gallery Area -->
-  <div class="main">
-      <div class="gallery" id="gallery">
-          <!-- Items injected here -->
+  <main class="main">
+    <header class="main-header">
+      <div class="tabs">
+        <button class="tab active" data-tab="active" data-i18n="tab_active">Active Tasks</button>
+        <button class="tab" data-tab="history" data-i18n="tab_history">History</button>
       </div>
-  </div>
-  
-  <div class="toast" id="toast">Message</div>
+      <div class="main-title" id="mode-display" data-i18n="mode_t2v">Text-to-Video</div>
+    </header>
+
+    <div class="content-area">
+      <div class="gallery" id="gallery">
+        <!-- Gallery Items -->
+      </div>
+      <div id="empty-state" class="empty-state">
+        <i class="fas fa-photo-film"></i>
+        <p data-i18n="empty_gallery">Your production queue is empty</p>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
 
   <script>
-      var API_KEY = "${apiKey}";
-      var ORIGIN = "${origin}";
-      let uploadedImageUrl = null;
-
-      // Active Tasks Management
-      let tasks = [];
-      let history = [];
-
-      // Helper functions - define early for HTML onclick events
-      function copyToClipboard(text) {
-          navigator.clipboard.writeText(text).then(() => showToast("已复制到剪贴板"));
+    const I18N = {
+      'en': {
+        api_access: 'API Access',
+        api_endpoint: 'Endpoint',
+        api_key: 'API Key',
+        settings: 'Settings',
+        aspect_ratio: 'Aspect Ratio',
+        duration: 'Duration',
+        resolution: 'Resolution',
+        style: 'Visual Style',
+        style_normal: 'Realistic',
+        style_fun: 'Cartoon',
+        style_spicy: 'Dynamic',
+        reference_image: 'Reference Image',
+        upload_hint: 'Click or drag to upload',
+        prompt: 'Prompt',
+        prompt_placeholder: 'Describe your creative vision...',
+        generate: 'Generate Video',
+        tab_active: 'Active Tasks',
+        tab_history: 'History',
+        mode_t2v: 'Text-to-Video',
+        mode_i2v: 'Image-to-Video',
+        empty_gallery: 'Your production queue is empty',
+        copy_success: 'Copied to clipboard',
+        upload_success: 'Image uploaded',
+        upload_failed: 'Upload failed',
+        gen_start: 'Starting generation...',
+        gen_failed: 'Generation failed',
+        gen_done: 'Video ready!',
+        confirm_delete: 'Delete this video?',
+        initializing: 'Initializing...',
+        rendering: 'Rendering...',
+        sync_count: 'Sync #',
+        download: 'Download',
+        delete: 'Delete',
+        limit_reached: 'Character limit reached'
+      },
+      'zh': {
+        api_access: 'API 訪問',
+        api_endpoint: '接口地址',
+        api_key: 'API 密鑰',
+        settings: '參數設置',
+        aspect_ratio: '畫面比例',
+        duration: '影片時長',
+        resolution: '解析度',
+        style: '視覺風格',
+        style_normal: '寫實主義',
+        style_fun: '趣味卡通',
+        style_spicy: '動態模式',
+        reference_image: '參考圖片',
+        upload_hint: '點擊或拖拽上傳',
+        prompt: '提示詞',
+        prompt_placeholder: '描述您的創意願景...',
+        generate: '開始生成',
+        tab_active: '進行中任務',
+        tab_history: '歷史紀錄',
+        mode_t2v: '文生影片',
+        mode_i2v: '圖生影片',
+        empty_gallery: '目前沒有生成中的任務',
+        copy_success: '已複製到剪貼板',
+        upload_success: '圖片上傳成功',
+        upload_failed: '上傳失敗',
+        gen_start: '開始生成...',
+        gen_failed: '生成失敗',
+        gen_done: '影片生成完成！',
+        confirm_delete: '確定要刪除這個影片嗎？',
+        initializing: '初始化中...',
+        rendering: '渲染中...',
+        sync_count: '同步第',
+        download: '下載',
+        delete: '刪除',
+        limit_reached: '字數超過限制'
       }
+    };
 
-      function copyApiOrigin() {
-          var origin = document.getElementById('api-origin').textContent;
-          copyToClipboard(origin);
-      }
+    let currentLang = localStorage.getItem('studio_lang') || 'en';
+    let currentTheme = localStorage.getItem('studio_theme') || 'light';
+    let uploadedImageUrl = null;
+    let activeTasks = [];
+    let historyTasks = JSON.parse(localStorage.getItem('studio_history') || '[]');
+    let currentTab = 'active';
 
-      function copyApiKey() {
-          var key = document.getElementById('api-key').textContent;
-          copyToClipboard(key);
-      }
+    const API_KEY = "${apiKey}";
+    const ORIGIN = "${origin}";
 
-      function showToast(msg) {
-          const t = document.getElementById('toast');
-          t.innerText = msg;
-          t.classList.add('show');
-          setTimeout(() => t.classList.remove('show'), 3000);
-      }
+    function init() {
+      applyLanguage();
+      applyTheme();
+      initSegmentedControls();
+      initUpload();
+      initTabs();
+      updateCharCount();
+      renderGallery();
 
-      function init() {
-          renderGallery();
-          checkMode();
+      document.getElementById('prompt').addEventListener('input', updateCharCount);
+    }
 
-          // Restore theme
-          const savedTheme = localStorage.getItem('ximagine_theme') || 'default';
-          setTheme(savedTheme);
+    // --- i18n Logic ---
+    function toggleLanguage() {
+      currentLang = currentLang === 'en' ? 'zh' : 'en';
+      localStorage.setItem('studio_lang', currentLang);
+      applyLanguage();
+    }
 
-          // Initialize character counter
-          updateCharCounter();
-          document.getElementById('prompt').addEventListener('input', updateCharCounter);
+    function applyLanguage() {
+      const strings = I18N[currentLang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (strings[key]) el.textContent = strings[key];
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (strings[key]) el.placeholder = strings[key];
+      });
+      updateModeDisplay();
+    }
 
-          // Initialize drop-zone click
-          document.getElementById('drop-zone').addEventListener('click', function(e) {
-              if (uploadedImageUrl) return;
-              document.getElementById('file-input').click();
-          });
-      }
-      
-      // 字符计数器
-      function updateCharCounter() {
-          const textarea = document.getElementById('prompt');
-          const counter = document.getElementById('char-counter');
-          const currentChars = document.getElementById('current-chars');
-          
-          // 计算字符数（中英文和标点都算1个）
-          const text = textarea.value;
-          const charCount = text.length;
-          
-          currentChars.textContent = charCount;
-          
-          // 更新样式
-          counter.classList.remove('warning', 'error');
-          if (charCount >= 1800) {
-              counter.classList.add('error');
-          } else if (charCount >= 1600) {
-              counter.classList.add('warning');
+    // --- Theme Logic ---
+    function toggleTheme() {
+      currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+      localStorage.setItem('studio_theme', currentTheme);
+      applyTheme();
+    }
+
+    function applyTheme() {
+      document.body.setAttribute('data-theme', currentTheme);
+      const icon = document.querySelector('#theme-btn i');
+      icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+    }
+
+    // --- Controls ---
+    function initSegmentedControls() {
+      document.querySelectorAll('.segmented-control').forEach(ctrl => {
+        ctrl.addEventListener('click', (e) => {
+          if (e.target.classList.contains('segment')) {
+            ctrl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
+            e.target.classList.add('active');
           }
-      }
-      
-      function getCharCount(text) {
-          return text.length;
-      }
+        });
+      });
+    }
 
-      // --- Theme Logic ---
-      const themes = ['default', 'cyberpunk', 'matrix', 'golden', 'clean'];
-      function toggleTheme() {
-          let current = localStorage.getItem('ximagine_theme') || 'default';
-          let idx = themes.indexOf(current);
-          let next = themes[(idx + 1) % themes.length];
-          setTheme(next);
-      }
-      function setTheme(theme) {
-          document.documentElement.setAttribute('data-theme', theme);
-          localStorage.setItem('ximagine_theme', theme);
-      }
+    function getSelectedValue(id) {
+      const active = document.querySelector(\`#\${id} .segment.active\`);
+      return active ? active.getAttribute('data-value') : null;
+    }
 
-      // --- File Upload Logic ---
+    // --- Upload Logic ---
+    function initUpload() {
       const dropZone = document.getElementById('drop-zone');
+      dropZone.onclick = () => { if (!uploadedImageUrl) document.getElementById('file-input').click(); };
       
-      dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-      dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); });
-      dropZone.addEventListener('drop', (e) => {
-          e.preventDefault(); dropZone.classList.remove('dragover');
-          if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
-      });
-      
-      document.addEventListener('paste', (e) => {
-           // Only paste if not typing in textarea
-          if (document.activeElement.tagName === 'TEXTAREA') return;
-          const items = e.clipboardData.items;
-          for (let item of items) {
-              if (item.type.indexOf('image') !== -1) {
-                  uploadFile(item.getAsFile());
-                  break;
-              }
-          }
-      });
+      document.getElementById('file-input').onchange = (e) => {
+        if (e.target.files[0]) uploadFile(e.target.files[0]);
+      };
 
-      function handleFileSelect(input) {
-          if (input.files[0]) uploadFile(input.files[0]);
+      dropZone.ondragover = (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; };
+      dropZone.ondragleave = () => { dropZone.style.borderColor = 'var(--border-color)'; };
+      dropZone.ondrop = (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+      };
+    }
+
+    async function uploadFile(file) {
+      const strings = I18N[currentLang];
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        showToast(strings.initializing);
+        
+        const res = await fetch(ORIGIN + '/v1/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if (data.success && data.data?.url) {
+          uploadedImageUrl = data.data.url;
+          document.getElementById('preview-img').src = uploadedImageUrl;
+          document.getElementById('preview-box').style.display = 'block';
+          document.querySelector('#drop-zone p').style.display = 'none';
+          document.querySelector('#drop-zone i').style.display = 'none';
+          updateModeDisplay();
+          showToast(strings.upload_success);
+        }
+      } catch (e) {
+        showToast(strings.upload_failed);
       }
+    }
 
-      async function uploadFile(file) {
-          try {
-              const formData = new FormData();
-              formData.append('file', file);
-              document.getElementById('upload-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上传中...';
-              
-              const res = await fetch(ORIGIN + '/v1/upload', { method: 'POST', body: formData });
-              const data = await res.json();
-              
-              if (data.success && data.data?.url) {
-                  uploadedImageUrl = data.data.url;
-                  showPreview(uploadedImageUrl);
-                  showToast('图片上传成功');
-              } else {
-                  throw new Error('上传失败');
-              }
-          } catch(e) {
-              document.getElementById('upload-text').innerHTML = '<i class="fas fa-cloud-upload-alt"></i><br>点击或拖拽上传图片';
-              showToast('上传失败: ' + e.message);
-          }
-      }
+    function removeImage(e) {
+      e.stopPropagation();
+      uploadedImageUrl = null;
+      document.getElementById('preview-box').style.display = 'none';
+      document.querySelector('#drop-zone p').style.display = 'block';
+      document.querySelector('#drop-zone i').style.display = 'block';
+      document.getElementById('file-input').value = '';
+      updateModeDisplay();
+    }
 
-      function showPreview(url) {
-          const previewImg = document.getElementById('upload-preview');
-          previewImg.src = url;
-          previewImg.onerror = function() {
-              showToast('图片加载失败，可能是SSL证书问题');
-              deleteImage({ stopPropagation: function() {} });
-          };
-          document.getElementById('preview-wrapper').style.display = 'block';
-          document.getElementById('upload-placeholder').style.display = 'none';
-          checkMode();
-      }
+    function updateModeDisplay() {
+      const strings = I18N[currentLang];
+      const el = document.getElementById('mode-display');
+      el.textContent = uploadedImageUrl ? strings.mode_i2v : strings.mode_t2v;
+      el.style.color = uploadedImageUrl ? 'var(--primary)' : 'var(--text-main)';
+    }
 
-      function deleteImage(e) {
-          e.stopPropagation(); // Prevent triggering upload click
-          uploadedImageUrl = null;
-          document.getElementById('preview-wrapper').style.display = 'none';
-          document.getElementById('upload-placeholder').style.display = 'block';
-          document.getElementById('upload-text').innerHTML = '<i class="fas fa-cloud-upload-alt"></i><br>点击或拖拽上传图片';
-          document.getElementById('file-input').value = '';
-          checkMode();
-      }
-
-      function checkMode() {
-          const hint = document.getElementById('mode-hint');
-          if (uploadedImageUrl) {
-              hint.innerHTML = '<i class="fas fa-magic"></i> 当前模式: 图生视频';
-              hint.style.color = 'var(--neon-blue)';
-          } else {
-              hint.innerHTML = '<i class="fas fa-keyboard"></i> 当前模式: 文生视频';
-              hint.style.color = 'var(--neon-pink)';
-          }
-      }
-
-      // --- Task Management & Generation ---
-
-      async function submitTask() {
-          const prompt = document.getElementById('prompt').value.trim();
-          if (!prompt) return showToast('请输入提示词');
-          
-          // 验证字符数
-          const charCount = getCharCount(prompt);
-          if (charCount > 1800) {
-              var msg = '提示词超过限制！当前 ' + charCount + ' 字符，最多 1800 字符';
-              return showToast(msg);
-          }
-
-          // 1. Create Task Object
-          const taskId = 'loc_' + Date.now(); // local temporary ID
-          const ratio = document.getElementById('ratio').value;
-          const videoStyle = document.getElementById('video-mode').value;
-          
-          // Logic: uploadedImageUrl ? grok-video-image : grok-video-{style}
-          let modelId = 'grok-video-' + videoStyle;
-          if (uploadedImageUrl) {
-              modelId = 'grok-video-image';
-          }
-
-          const newTask = {
-              id: taskId,
-              status: 'pending', // pending, processing, completed, failed
-              prompt: prompt,
-              model: modelId,
-              ratio: ratio,
-              refImage: uploadedImageUrl,
-              date: new Date().toLocaleString(),
-              progress: 0,
-              pollCount: 0,
-              type: 'video'
-          };
-
-          // 2. Add to list and render
-          tasks.unshift(newTask);
+    // --- Tasks ---
+    function initTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.onclick = () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          currentTab = tab.getAttribute('data-tab');
           renderGallery();
-          
-          // 3. Start processing in background (Fire & Forget)
-          processTask(newTask);
-          
-          // 4. Clear Input (Optional)
-          // document.getElementById('prompt').value = '';
+        };
+      });
+    }
+
+    async function submitTask() {
+      const strings = I18N[currentLang];
+      const prompt = document.getElementById('prompt').value.trim();
+      if (!prompt) return;
+
+      const task = {
+        id: 'task_' + Date.now(),
+        status: 'pending',
+        prompt: prompt,
+        ratio: getSelectedValue('ratio-control'),
+        duration: getSelectedValue('duration-control'),
+        resolution: getSelectedValue('res-control'),
+        style: document.getElementById('video-mode').value,
+        image: uploadedImageUrl,
+        date: new Date().toLocaleTimeString(),
+        progress: 0,
+        pollCount: 0
+      };
+
+      activeTasks.unshift(task);
+      if (currentTab !== 'active') {
+        document.querySelector('[data-tab="active"]').click();
+      } else {
+        renderGallery();
       }
+      
+      processTask(task);
+    }
 
-      function renderGallery() {
-          const container = document.getElementById('gallery');
-          container.innerHTML = '';
+    async function processTask(task) {
+      const strings = I18N[currentLang];
+      try {
+        let model = 'grok-video-' + task.style;
+        if (task.image) model = 'grok-video-image';
 
-          // Merge tasks and history for display
-          // Active tasks first
-          const allItems = [...tasks, ...history];
-
-          allItems.forEach(item => {
-              const el = document.createElement('div');
-              el.className = 'gallery-item';
-
-              let mediaContent = '';
-
-              if (item.status === 'completed') {
-                  const videoUrl = (item.urls && item.urls[0]) || item.videoUrl || '';
-                  var safeVideoUrl = videoUrl.replace(/"/g, '&quot;');
-                  mediaContent = '<video src="' + safeVideoUrl + '" controls loop playsinline onerror="this.parentElement.innerHTML=&apos;<div class=video-error>视频加载失败</div>&apos;"></video>';
-              } else {
-                  var statusText = item.status === 'pending' ? '初始化中...' : '渲染中...';
-                  var progressVal = item.pollCount || 0;
-                  mediaContent = '<div class="task-overlay">' +
-                      '<div class="task-spinner"></div>' +
-                      '<div style="font-size:12px;color:var(--neon-blue)">' + statusText + '</div>' +
-                      '<div style="font-size:14px;font-family:monospace">第 ' + progressVal + ' 次同步</div>' +
-                      '</div>' +
-                      '<div class="task-status-bar"><div class="task-progress-fill" style="width:' + (item.progress || 0) + '%"></div></div>';
-
-                  if (item.refImage) {
-                      var safeRefImage = item.refImage.replace(/"/g, '&quot;');
-                      mediaContent = '<img src="' + safeRefImage + '" style="opacity:0.3" onerror="this.style.display=&apos;none&apos;">' + mediaContent;
-                  }
-              }
-
-              var modelName = '标准模式'; // 默认值
-              if (item.model) {
-                  var modelUpper = item.model.toUpperCase();
-                  if (modelUpper.indexOf('GROK-VIDEO-NORMAL') >= 0) modelName = '标准模式';
-                  else if (modelUpper.indexOf('GROK-VIDEO-FUN') >= 0) modelName = '趣味模式';
-                  else if (modelUpper.indexOf('GROK-VIDEO-SPICY') >= 0) modelName = '激情模式';
-                  else if (modelUpper.indexOf('GROK-VIDEO-IMAGE') >= 0) modelName = '图生视频';
-                  else modelName = item.model;
-              }
-
-              var actionsHtml = '';
-              if (item.status === 'completed' && item.urls && item.urls.length > 0) {
-                  var safeUrl = item.urls[0].replace(/"/g, '&quot;');
-                  actionsHtml = '<div class="item-actions">' +
-                      '<button class="action-btn btn-download" data-url="' + safeUrl + '" data-id="' + item.id + '" onclick="handleDownloadClick(this)"><i class="fas fa-download"></i> 下载</button>' +
-                      '<button class="action-btn btn-delete" data-id="' + item.id + '" onclick="handleDeleteClick(this)"><i class="fas fa-trash"></i> 删除</button>' +
-                      '</div>';
-              } else if (item.status === 'failed') {
-                  actionsHtml = '<div class="item-actions">' +
-                      '<button class="action-btn btn-delete" data-id="' + item.id + '" onclick="handleDeleteClick(this)"><i class="fas fa-trash"></i> 删除</button>' +
-                      '</div>';
-              }
-
-              var safePrompt = item.prompt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-              el.innerHTML = '<div class="media-container" id="media-' + item.id + '">' + mediaContent + '</div>' +
-                  '<div class="item-info">' +
-                  '<div class="item-prompt">' + safePrompt + '</div>' +
-                  '<div class="item-meta">' +
-                  '<span class="meta-tag"><i class="fas fa-film"></i> ' + modelName + '</span>' +
-                  '<span class="meta-tag"><i class="fas fa-expand"></i> ' + item.ratio + '</span>' +
-                  '<span class="meta-tag"><i class="fas fa-clock"></i> ' + item.date + '</span>' +
-                  '</div>' +
-                  actionsHtml +
-                  '</div>';
-              container.appendChild(el);
-          });
-      }
-
-      // Isolated Task Processor
-      async function processTask(task) {
-          try {
-              task.status = 'processing';
-              updateTaskUI(task);
-
-              const payload = {
-                  model: task.model,
-                  messages: [{
-                      role: 'user',
-                      content: JSON.stringify({
-                          prompt: task.prompt,
-                          aspectRatio: task.ratio,
-                          clientPollMode: true,
-                          imageUrls: task.refImage ? [task.refImage] : []
-                      })
-                  }],
-                  stream: true
-              };
-
-              const res = await fetch(ORIGIN + '/v1/chat/completions', {
-                  method: 'POST',
-                  headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
-              });
-
-              // Read Stream used only to get the Real Task ID
-              const reader = res.body.getReader();
-              const decoder = new TextDecoder();
-              let realTaskId = null;
-              let uniqueId = null;
-
-              // Read first few chunks to catch the ID
-              var buffer = '';
-              while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buffer += decoder.decode(value, { stream: true });
-                  const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
-                  if (match) {
-                      realTaskId = match[1];
-                      uniqueId = match[2];
-                      break;
-                  }
-              }
-
-              if (!realTaskId) {
-                  console.error('Failed to extract task ID. Buffer:', buffer);
-                  // Extract error message from buffer if present
-                  let errorMsg = "无法获取任务ID";
-                  if (buffer.includes("**错误**:")) {
-                      errorMsg = buffer.split("**错误**:")[1].trim().split('\\n')[0];
-                  }
-                  throw new Error("任务创建失败: " + errorMsg);
-              }
-
-              // Start Polling for this specific task
-              pollTaskStatus(task, realTaskId, uniqueId);
-
-          } catch (e) {
-              console.error('ProcessTask error:', e);
-              task.status = 'failed';
-              task.progress = 0;
-              // update UI to show fail
-              const mediaEl = document.getElementById('media-' + task.id);
-              if(mediaEl) mediaEl.innerHTML = '<div style="color:red;padding:20px;">生成失败: ' + e.message + '</div>';
-              // Remove from active tasks after delay?
-          }
-      }
-
-      function pollTaskStatus(task, realTaskId, uniqueId) {
-          let internalPollCount = 0;
-          const pollInterval = setInterval(async () => {
-              internalPollCount++;
-              task.pollCount = internalPollCount;
-
-              // Mock progress for visual feedback (Slow movement)
-              if (task.progress < 95) {
-                  task.progress += 1;
-                  updateTaskUI(task);
-              }
-
-              try {
-                   var pollUrl = ORIGIN + '/v1/query/status?taskId=' + realTaskId + '&uniqueId=' + uniqueId + '&type=video';
-                   const pollRes = await fetch(pollUrl, {
-                      headers: { 'Authorization': 'Bearer ' + API_KEY }
-                  });
-                  const data = await pollRes.json();
-
-                  if (data.status === 'completed' || data.videoUrl || (data.urls && data.urls.length > 0)) {
-                      clearInterval(pollInterval);
-                      task.status = 'completed';
-                      task.progress = 100;
-                      task.urls = data.urls || (data.videoUrl ? [data.videoUrl] : []);
-
-                      // Move to history
-                      moveToHistory(task);
-
-                  } else if (data.status === 'failed') {
-                      clearInterval(pollInterval);
-                      task.status = 'failed';
-                      task.progress = 0;
-                      renderGallery();
-                      showToast('生成失败: ' + (data.error || '未知错误'));
-                  } else if (data.status === 'processing') {
-                      if (data.progress) {
-                          task.progress = data.progress;
-                          updateTaskUI(task);
-                      }
-                  }
-              } catch(e) {
-                  console.error('Poll error:', e);
-                  if (internalPollCount > 60) { // Timeout after 2 minutes
-                       clearInterval(pollInterval);
-                       task.status = 'failed';
-                       task.progress = 0;
-                       renderGallery();
-                       showToast('生成超时');
-                  }
-              }
-          }, 2000);
-      }
-
-      function updateTaskUI(task) {
-           // Efficiently update just the DOM element for this task
-           // But simple re-render is okay for < 10 tasks.
-           // For better perf, we can target ID.
-           const mediaEl = document.getElementById('media-' + task.id);
-           if (mediaEl && task.status !== 'completed') {
-               const progressFill = mediaEl.querySelector('.task-progress-fill');
-               const progressText = mediaEl.querySelector('.task-overlay div:last-child');
-               const statusTextEl = mediaEl.querySelector('.task-overlay div:nth-child(2)');
-               
-               if (progressFill) progressFill.style.width = (task.progress || 0) + '%';
-               if (progressText) progressText.innerText = '第 ' + (task.pollCount || 0) + ' 次同步';
-               if (statusTextEl) {
-                   statusTextEl.innerText = task.status === 'pending' ? '初始化中...' : '渲染中...';
-               }
-           }
-      }
-
-      function moveToHistory(task) {
-          // Remove from tasks array
-          tasks = tasks.filter(t => t.id !== task.id);
-
-          // Add to history
-          const historyItem = {
-              id: 'hist_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-              type: 'video',
-              status: 'completed',
-              progress: 100,
+        const payload = {
+          model: model,
+          messages: [{
+            role: 'user',
+            content: JSON.stringify({
               prompt: task.prompt,
-              urls: task.urls,
-              date: task.date,
-              model: task.model,
-              ratio: task.ratio
-          };
-          history.unshift(historyItem);
-          
-          renderGallery();
-          showToast('生成完成！');
+              aspectRatio: task.ratio,
+              duration: task.duration,
+              resolution: task.resolution,
+              clientPollMode: true,
+              imageUrls: task.image ? [task.image] : []
+            })
+          }],
+          stream: true
+        };
+
+        const res = await fetch(ORIGIN + '/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let realId = null, uid = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value);
+          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
+          if (match) { realId = match[1]; uid = match[2]; break; }
+        }
+
+        if (realId) startPolling(task, realId, uid);
+        else throw new Error('No task ID');
+
+      } catch (e) {
+        task.status = 'failed';
+        renderGallery();
+        showToast(strings.gen_failed);
       }
+    }
 
-      function deleteItem(itemId) {
-          if (!confirm('确定要删除这个视频吗？')) return;
+    function startPolling(task, realId, uid) {
+      const strings = I18N[currentLang];
+      task.status = 'processing';
+      
+      const timer = setInterval(async () => {
+        task.pollCount++;
+        if (task.progress < 90) task.progress += 2;
+        updateTaskCard(task);
 
-          // Remove from tasks
-          tasks = tasks.filter(t => t.id.toString() !== itemId.toString());
+        try {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}\`, {
+            headers: { 'Authorization': 'Bearer ' + API_KEY }
+          });
+          const data = await res.json();
 
-          // Remove from history
-          history = history.filter(h => h.id.toString() !== itemId.toString());
+          if (data.status === 'completed' || data.videoUrl) {
+            clearInterval(timer);
+            task.status = 'completed';
+            task.url = data.videoUrl || data.urls[0];
+            completeTask(task);
+          } else if (data.status === 'failed') {
+            clearInterval(timer);
+            task.status = 'failed';
+            renderGallery();
+            showToast(strings.gen_failed);
+          } else if (data.progress) {
+            task.progress = data.progress;
+            updateTaskCard(task);
+          }
+        } catch (e) {
+          if (task.pollCount > 100) clearInterval(timer);
+        }
+      }, 2000);
+    }
 
-          renderGallery();
-          showToast('已删除');
+    function completeTask(task) {
+      activeTasks = activeTasks.filter(t => t.id !== task.id);
+      historyTasks.unshift(task);
+      if (historyTasks.length > 50) historyTasks.pop();
+      localStorage.setItem('studio_history', JSON.stringify(historyTasks));
+      renderGallery();
+      showToast(I18N[currentLang].gen_done);
+    }
+
+    function renderGallery() {
+      const container = document.getElementById('gallery');
+      const empty = document.getElementById('empty-state');
+      const items = currentTab === 'active' ? activeTasks : historyTasks;
+      
+      container.innerHTML = '';
+      if (items.length === 0) {
+        empty.style.display = 'flex';
+        return;
       }
+      empty.style.display = 'none';
 
-      function downloadVideo(url, itemId) {
-          const proxyUrl = window.location.origin + '/v1/proxy/download?url=' + encodeURIComponent(url);
-          var a = document.createElement('a');
-          a.href = proxyUrl;
-          a.download = 'video_' + itemId + '.mp4';
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          showToast('开始下载 (通过代理)');
-      }
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.id = \`card-\${item.id}\`;
 
-      function handleDownloadClick(btn) {
-          var url = btn.getAttribute('data-url');
-          var id = btn.getAttribute('data-id');
-          downloadVideo(url, id);
-      }
+        let media = '';
+        if (item.status === 'completed') {
+          media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
+        } else {
+          media = \`
+            <div class="loading-overlay">
+              <div class="spinner"></div>
+              <div style="font-size:0.875rem">\${item.status === 'pending' ? I18N[currentLang].initializing : I18N[currentLang].rendering}</div>
+              <div class="progress-container"><div class="progress-bar" style="width:\${item.progress}%"></div></div>
+              <div style="font-size:0.75rem;opacity:0.7">\${I18N[currentLang].sync_count} \${item.pollCount}</div>
+            </div>
+          \`;
+          if (item.image) media = \`<img src="\${item.image}" style="opacity:0.3">\` + media;
+        }
 
-      function handleDeleteClick(btn) {
-          var id = btn.getAttribute('data-id');
-          deleteItem(id);
-      }
+        const actions = item.status === 'completed' ? \`
+          <div class="card-actions">
+            <button class="btn-action" onclick="downloadVideo('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
+            <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+          </div>
+        \` : '';
 
-      init();
+        card.innerHTML = \`
+          <div class="card-media">\${media}</div>
+          <div class="card-body">
+            <div class="card-prompt">\${item.prompt}</div>
+            <div class="card-footer">
+              <div class="card-meta">
+                <span><i class="fas fa-expand"></i> \${item.ratio}</span>
+                <span><i class="fas fa-clock"></i> \${item.duration}s</span>
+                <span><i class="fas fa-display"></i> \${item.resolution}</span>
+              </div>
+              \${actions}
+            </div>
+          </div>
+        \`;
+        container.appendChild(card);
+      });
+    }
+
+    function updateTaskCard(task) {
+      const card = document.getElementById(\`card-\${task.id}\`);
+      if (!card) return;
+      const bar = card.querySelector('.progress-bar');
+      const count = card.querySelector('.loading-overlay div:last-child');
+      if (bar) bar.style.width = task.progress + '%';
+      if (count) count.textContent = \`\${I18N[currentLang].sync_count} \${task.pollCount}\`;
+    }
+
+    function deleteTask(id) {
+      if (!confirm(I18N[currentLang].confirm_delete)) return;
+      historyTasks = historyTasks.filter(t => t.id !== id);
+      localStorage.setItem('studio_history', JSON.stringify(historyTasks));
+      renderGallery();
+    }
+
+    function downloadVideo(url) {
+      const proxyUrl = ORIGIN + '/v1/proxy/download?url=' + encodeURIComponent(url);
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = 'video.mp4';
+      a.click();
+    }
+
+    // --- Utils ---
+    function updateCharCount() {
+      const len = document.getElementById('prompt').value.length;
+      const el = document.getElementById('char-count');
+      const wrap = document.getElementById('char-counter');
+      el.textContent = len;
+      wrap.className = 'char-count-wrap' + (len > 1600 ? ' warning' : '') + (len >= 1800 ? ' error' : '');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text).then(() => showToast(I18N[currentLang].copy_success));
+    }
+    function copyApiOrigin() { copyToClipboard(document.getElementById('api-origin').textContent); }
+    function copyApiKey() { copyToClipboard(document.getElementById('api-key').textContent); }
+
+    window.onload = init;
   </script>
 </body>
-</html>`;
-
-  return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
-  });
+</html>\`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 }
