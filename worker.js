@@ -1828,7 +1828,7 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 與 type 給後端
-          const res = await fetch(`${ORIGIN}/v1/query/status?taskId=${realId}&uniqueId=${uid}&type=${type}&createdAt=${task.created_at}`, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&type=\${type}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
