@@ -1,0 +1,21 @@
+# Ximagine-2API Pro - Cloudflare Worker 配置
+# 版本: 2.2.0 (Chimera Synthesis)
+
+name = "ximagine-2api-pro"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Worker 配置
+workers_dev = true
+
+# 環境變量配置（生產環境請修改 API_MASTER_KEY）
+# [vars]
+# API_MASTER_KEY = "your-secure-key-here"
+
+# 帳戶 ID（可選，如果有多個帳戶時需要指定）
+# account_id = "your-account-id"
+
+# 路由配置（可選）
+# [[routes]]
+# pattern = "api.yourdomain.com/*"
+# zone_name = "yourdomain.com"
