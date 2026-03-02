@@ -96,6 +96,12 @@ export default {
           return handleVideoGenerations(request, apiKey);
       }
 
+      // 3.2 官方輪詢接口 (兼容 xAI: GET /v1/videos/generations/{id})
+      if (url.pathname.startsWith('/v1/videos/generations/') && request.method === 'GET') {
+          const taskId = url.pathname.split('/').pop();
+          return handleVideoGenerationStatus(request, apiKey, taskId);
+      }
+
       // 4. 模型列表
       if (url.pathname === '/v1/models') return handleModelsRequest();
 
@@ -457,7 +463,7 @@ async function handleChatCompletions(request, apiKey) {
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              // 確保標記格式清晰，避免被 JSON 轉義破壞
+              // 確保標記格式清晰
               const taskInfo = `[TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]`;
               await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- ${taskInfo}\n`);
           } else {
@@ -552,6 +558,67 @@ async function handleVideoGenerations(request, apiKey) {
 
     } catch (e) {
         return createErrorResponse(e.message, 500, 'api_error');
+    }
+}
+
+/**
+ * 兼容 xAI 官方影片生成狀態輪詢接口 (GET /v1/videos/generations/{id})
+ */
+async function handleVideoGenerationStatus(request, apiKey, taskId) {
+    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
+
+    const uniqueId = new URL(request.url).searchParams.get('uniqueId'); // 支援可選 UID
+    const headers = getCommonHeaders(uniqueId);
+    
+    try {
+        const res = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=GROK_IMAGINE`, {
+            method: 'GET',
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json'
+            }
+        });
+        const data = await res.json();
+
+        let responseBody = {
+            id: taskId,
+            object: "video.generation",
+            status: "pending",
+            created: Math.floor(Date.now() / 1000) - 60, // 估算
+            model: "grok-imagine-video"
+        };
+
+        if (data.data) {
+            if (data.data.completeData) {
+                try {
+                    const inner = JSON.parse(data.data.completeData);
+                    if (inner.data && inner.data.result_urls && inner.data.result_urls.length > 0) {
+                        responseBody.status = "completed";
+                        responseBody.video = {
+                            url: inner.data.result_urls[0]
+                        };
+                    } else {
+                        responseBody.status = "failed";
+                        responseBody.error = "Video generation completed but no URL found (possible interception).";
+                    }
+                } catch (e) {
+                    responseBody.status = "failed";
+                    responseBody.error = "Failed to parse result: " + e.message;
+                }
+            } else if (data.data.failMsg) {
+                responseBody.status = "failed";
+                responseBody.error = data.data.failMsg;
+            } else {
+                responseBody.status = "processing";
+                // xAI 標準通常不帶 progress 字段，但為了開發者方便可以附加
+                responseBody.progress = data.data.progress ? Math.floor(parseFloat(data.data.progress) * 100) : 0;
+            }
+        }
+
+        return new Response(JSON.stringify(responseBody), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+
+    } catch (e) {
+        return createErrorResponse(e.message, 500, 'upstream_error');
     }
 }
 
@@ -1828,7 +1895,11 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 與 type 給後端
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&type=\${type}&createdAt=\${task.created_at}\`, {
+          const url = ORIGIN + '/v1/query/status?taskId=' + realId + 
+                      '&uniqueId=' + uid + 
+                      '&type=' + type + 
+                      '&createdAt=' + task.created_at;
+          const res = await fetch(url, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
