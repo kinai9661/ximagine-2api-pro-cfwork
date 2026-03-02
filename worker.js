@@ -32,7 +32,7 @@ const CONFIG = {
       "grok-video-spicy": { type: "video", mode: "spicy", channel: "GROK_IMAGINE", pageId: 886 },
       "grok-imagine-video": { type: "video", model: "grok-imagine", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖生視頻
-      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
+      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 900 },
       // 圖像模型
       "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 }
   },
@@ -94,12 +94,6 @@ export default {
       // 3.1 影片生成與延長接口 (兼容 xAI)
       if (url.pathname === '/v1/videos/generations' || url.pathname === '/v1/images/generations') {
           return handleVideoGenerations(request, apiKey);
-      }
-
-      // 3.2 官方輪詢接口 (兼容 xAI: GET /v1/videos/generations/{id})
-      if (url.pathname.startsWith('/v1/videos/generations/') && request.method === 'GET') {
-          const taskId = url.pathname.split('/').pop();
-          return handleVideoGenerationStatus(request, apiKey, taskId);
       }
 
       // 4. 模型列表
@@ -221,21 +215,47 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "channel": modelConfig.channel,
       "pageId": modelConfig.pageId,
       "source": "ximagine.io",
-      "watermarkFlag": true, // 強制開啟水印以提高成功率
+      "watermarkFlag": true, // Default true
       "privateFlag": false,
       "isTemp": true,
-      "model": modelConfig.model || "grok-imagine",
+      "model": "grok-imagine",
       "videoType": referenceUrl ? (isVideoExtension ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
-      // 移除強制 FPS 以適應不同上游節點
+      "fps": 30, // 強制指定幀率以確保時長一致性
       "imageUrls": (!isVideoExtension && referenceUrl) ? [referenceUrl] : [],
       "videoUrl": isVideoExtension ? referenceUrl : undefined
   };
 
   if (modelConfig.type === 'video') {
-      payload.mode = modelConfig.mode || "normal";
+      payload.mode = modelConfig.mode;
+
+      // 檢查是否有參考內容 (Prompt 中傳來的 JSON 格式)
+      try {
+          if (prompt && prompt.trim().startsWith('{')) {
+              const jsonPrompt = JSON.parse(prompt);
+              const hasVideo = jsonPrompt.videoUrl || (jsonPrompt.imageUrls && jsonPrompt.imageUrls[0]?.includes('.mp4'));
+              const hasImage = jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0 && !hasVideo;
+
+              if (hasVideo || hasImage) {
+                  payload.prompt = jsonPrompt.prompt || "Continue the scene";
+                  payload.videoType = hasVideo ? "video-to-video" : "image-to-video";
+                  payload.videoUrl = hasVideo ? (jsonPrompt.videoUrl || jsonPrompt.imageUrls[0]) : undefined;
+                  payload.imageUrls = hasImage ? jsonPrompt.imageUrls : [];
+                  payload.watermarkFlag = false; // 用戶要求去水印
+                  
+                  if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
+                      payload.duration = parseInt(jsonPrompt.duration);
+                  }
+                  if (jsonPrompt.resolution && validResolutions.includes(jsonPrompt.resolution)) {
+                      payload.resolution = jsonPrompt.resolution;
+                  }
+              }
+          }
+      } catch (e) {
+          // Not a JSON prompt, ignore
+      }
   }
 
   if (onProgress) await onProgress({ status: 'submitting', message: `正在提交任务 (${modelConfig.type})...` });
@@ -265,15 +285,11 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
   const createData = await createRes.json();
   if (createData.code !== 200 || !createData.data) {
-      // 傳遞原始錯誤信息給前端
-      let errMsg = createData.message || JSON.stringify(createData);
-      if (createData.code === 100002 || errMsg.includes("HC verification")) {
+      // 传递原始 error code 给前端处理
+      if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
           throw new Error(`HC_VERIFICATION_REQUIRED`);
       }
-      if (errMsg.includes("sensitive") || errMsg.includes("violation")) {
-          throw new Error(`提示詞包含敏感內容或違反安全原則，請修改後重試。`);
-      }
-      throw new Error(`上游任務創建失敗 (${createData.code}): ${errMsg}`);
+      throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
   }
 
   const taskId = createData.data;
@@ -441,7 +457,7 @@ async function handleChatCompletions(request, apiKey) {
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              // 確保標記格式清晰
+              // 確保標記格式清晰，避免被 JSON 轉義破壞
               const taskInfo = `[TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]`;
               await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- ${taskInfo}\n`);
           } else {
@@ -536,67 +552,6 @@ async function handleVideoGenerations(request, apiKey) {
 
     } catch (e) {
         return createErrorResponse(e.message, 500, 'api_error');
-    }
-}
-
-/**
- * 兼容 xAI 官方影片生成狀態輪詢接口 (GET /v1/videos/generations/{id})
- */
-async function handleVideoGenerationStatus(request, apiKey, taskId) {
-    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
-
-    const uniqueId = new URL(request.url).searchParams.get('uniqueId'); // 支援可選 UID
-    const headers = getCommonHeaders(uniqueId);
-    
-    try {
-        const res = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=GROK_IMAGINE`, {
-            method: 'GET',
-            headers: {
-                ...headers,
-                'Content-Type': 'application/json'
-            }
-        });
-        const data = await res.json();
-
-        let responseBody = {
-            id: taskId,
-            object: "video.generation",
-            status: "pending",
-            created: Math.floor(Date.now() / 1000) - 60, // 估算
-            model: "grok-imagine-video"
-        };
-
-        if (data.data) {
-            if (data.data.completeData) {
-                try {
-                    const inner = JSON.parse(data.data.completeData);
-                    if (inner.data && inner.data.result_urls && inner.data.result_urls.length > 0) {
-                        responseBody.status = "completed";
-                        responseBody.video = {
-                            url: inner.data.result_urls[0]
-                        };
-                    } else {
-                        responseBody.status = "failed";
-                        responseBody.error = "Video generation completed but no URL found (possible interception).";
-                    }
-                } catch (e) {
-                    responseBody.status = "failed";
-                    responseBody.error = "Failed to parse result: " + e.message;
-                }
-            } else if (data.data.failMsg) {
-                responseBody.status = "failed";
-                responseBody.error = data.data.failMsg;
-            } else {
-                responseBody.status = "processing";
-                // xAI 標準通常不帶 progress 字段，但為了開發者方便可以附加
-                responseBody.progress = data.data.progress ? Math.floor(parseFloat(data.data.progress) * 100) : 0;
-            }
-        }
-
-        return new Response(JSON.stringify(responseBody), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
-
-    } catch (e) {
-        return createErrorResponse(e.message, 500, 'upstream_error');
     }
 }
 
@@ -1873,11 +1828,7 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 與 type 給後端
-          const url = ORIGIN + '/v1/query/status?taskId=' + realId + 
-                      '&uniqueId=' + uid + 
-                      '&type=' + type + 
-                      '&createdAt=' + task.created_at;
-          const res = await fetch(url, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&type=\${type}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
