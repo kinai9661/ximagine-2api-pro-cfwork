@@ -13,7 +13,19 @@
 
 [🚀 一键部署](#-一键部署-deploy-button) | [📖 使用教程](#-使用教程-user-manual) | [🏗️ 技术架构](#-技术架构-technical-architecture) | [🔮 未来规划](#-未来规划-roadmap--gaps) | [💡 常见问题](#-常见问题-faq)
 
-</div>
+---
+
+## 🌍 English Introduction
+
+**Ximagine-2API Pro** is a high-performance proxy service built on Cloudflare Workers, designed to bridge the gap between users and state-of-the-art AI video generation models. It transforms complex upstream APIs into a standardized, easy-to-use OpenAI-compatible format, complete with a professional "Studio Edition" web interface.
+
+### 🌟 Key Features
+- **Professional Studio UI**: A clean, production-oriented interface for video generation, extension, and history management.
+- **xAI & OpenAI Compatibility**: Supports both OpenAI chat completion format and xAI's `/v1/videos/generations` asynchronous standard.
+- **Advanced Anonymity**: Million-scale identity randomization system ensures privacy and bypasses regional restrictions.
+- **Precise Control**: Fine-tune your videos with custom aspect ratios, resolutions, and exact 6-second durations.
+- **Video Extension**: Seamlessly continue your stories by extending existing videos using the new "Extend" feature.
+- **Global Performance**: Deployed on Cloudflare's edge network for millisecond response times worldwide.
 
 ---
 

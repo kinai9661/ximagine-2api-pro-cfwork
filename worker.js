@@ -91,6 +91,11 @@ export default {
       // 3. 聊天接口 (核心生成逻辑 - 兼容 OpenAI)
       if (url.pathname === '/v1/chat/completions') return handleChatCompletions(request, apiKey);
 
+      // 3.1 影片生成與延長接口 (兼容 xAI)
+      if (url.pathname === '/v1/videos/generations' || url.pathname === '/v1/images/generations') {
+          return handleVideoGenerations(request, apiKey);
+      }
+
       // 4. 模型列表
       if (url.pathname === '/v1/models') return handleModelsRequest();
 
@@ -172,9 +177,9 @@ function getCommonHeaders(uniqueId = null) {
 }
 
 /**
-* 核心：執行視頻生成任務
+* 核心：執行視頻生成與延長任務
 */
-async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false) {
+async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false, referenceUrl = null) {
   const uniqueId = generateUniqueId();
   const headers = getCommonHeaders(uniqueId);
   const taskStartTime = Date.now(); // 任務建立時間 (UTC)
@@ -188,12 +193,12 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       finalRatio = "1:1";
   }
 
-  // 驗證時長 (支援 5, 8, 10)
-  // 核心修復：確保 Duration 參數嚴格對齊上游編碼器規格
-  const validDurations = [5, 8, 10];
-  let finalDuration = parseInt(duration) || 5;
+  // 驗證時長 (僅支援 6 秒，延長時建議設為 10)
+  // 核心修復：根據用戶要求，時長限制為 6 秒 (延長時可能由 API 決定)
+  const validDurations = [5, 6, 8, 10];
+  let finalDuration = parseInt(duration) || 6;
   if (!validDurations.includes(finalDuration)) {
-      finalDuration = 5;
+      finalDuration = 6;
   }
 
   // 驗證解析度 (支援 720p, 1080p)
@@ -212,26 +217,26 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "privateFlag": false,
       "isTemp": true,
       "model": "grok-imagine",
-      "videoType": "text-to-video",
+      "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
       "fps": 30, // 強制指定幀率以確保時長一致性
-      "imageUrls": []
+      "imageUrls": referenceUrl ? [referenceUrl] : []
   };
 
   if (modelConfig.type === 'video') {
       payload.mode = modelConfig.mode;
 
-      // 檢查是否有圖片URL (Prompt 中傳來的 JSON 格式)
+      // 檢查是否有參考內容 (Prompt 中傳來的 JSON 格式)
       try {
-          // 嘗試解析 prompt 是否為 JSON（包含 Img2Vid 參數）
+          // 嘗試解析 prompt 是否為 JSON（包含 Img2Vid / Vid2Vid 參數）
           if (prompt.trim().startsWith('{')) {
               const jsonPrompt = JSON.parse(prompt);
-              if (jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0) {
-                  payload.prompt = jsonPrompt.prompt || "Animate this";
-                  payload.imageUrls = jsonPrompt.imageUrls;
-                  payload.videoType = "image-to-video";
+              if ((jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0) || jsonPrompt.videoUrl) {
+                  payload.prompt = jsonPrompt.prompt || "Continue the scene";
+                  payload.imageUrls = jsonPrompt.imageUrls || [jsonPrompt.videoUrl];
+                  payload.videoType = jsonPrompt.videoUrl ? "video-to-video" : "image-to-video";
                   payload.watermarkFlag = false; // 用戶要求去水印
                   // 這裡可以覆蓋參數，如果 JSON 中提供了
                   if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
@@ -387,9 +392,10 @@ async function handleChatCompletions(request, apiKey) {
 
   let prompt = lastMsg;
   let aspectRatio = "1:1";
-  let duration = 5;
+  let duration = 6;
   let resolution = "720p";
   let clientPollMode = false;
+  let referenceUrl = null;
 
   try {
       if (lastMsg.trim().startsWith('{') && lastMsg.includes('prompt')) {
@@ -399,6 +405,8 @@ async function handleChatCompletions(request, apiKey) {
           if (parsed.duration) duration = parsed.duration;
           if (parsed.resolution) resolution = parsed.resolution;
           if (parsed.clientPollMode) clientPollMode = true;
+          if (parsed.imageUrls && parsed.imageUrls.length > 0) referenceUrl = parsed.imageUrls[0];
+          if (parsed.videoUrl) referenceUrl = parsed.videoUrl;
           if (parsed.model) {
               if (CONFIG.MODEL_MAP[parsed.model]) modelKey = parsed.model;
           }
@@ -407,6 +415,8 @@ async function handleChatCompletions(request, apiKey) {
           if (body.aspect_ratio) aspectRatio = body.aspect_ratio;
           if (body.duration) duration = body.duration;
           if (body.resolution) resolution = body.resolution;
+          if (body.input_video_url) referenceUrl = body.input_video_url;
+          if (body.input_image_url) referenceUrl = body.input_image_url;
       }
   } catch (e) { }
 
@@ -432,7 +442,7 @@ async function handleChatCompletions(request, apiKey) {
                       await sendSSE(writer, encoder, requestId, `⏳ 視頻渲染中: [${bar}] ${progress}%\n`, true);
                   }
               }
-          }, clientPollMode);
+          }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
               await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
@@ -493,6 +503,42 @@ async function handleChatCompletions(request, apiKey) {
   return new Response(readable, {
       headers: corsHeaders({ 'Content-Type': 'text/event-stream' })
   });
+}
+
+/**
+ * 兼容 xAI 官方影片生成與延長接口 (Asynchronous)
+ */
+async function handleVideoGenerations(request, apiKey) {
+    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
+
+    let body;
+    try { body = await request.json(); } catch (e) { return createErrorResponse('Invalid JSON', 400, 'invalid_json'); }
+
+    const prompt = body.prompt || "";
+    const model = body.model || "grok-imagine-video";
+    const aspectRatio = body.aspect_ratio || "1:1";
+    const duration = body.duration || 6;
+    const resolution = body.resolution || "720p";
+    
+    // 兼容 xAI 參考基底參數
+    const referenceUrl = body.input_video_url || body.input_image_url || null;
+
+    try {
+        // 使用 clientPollMode = true 以符合非同步需求
+        const result = await performGeneration(prompt, aspectRatio, duration, resolution, model, null, true, referenceUrl);
+
+        return new Response(JSON.stringify({
+            id: result.taskId,
+            object: "video.generation",
+            created: Math.floor(result.created_at / 1000),
+            model: model,
+            status: "pending",
+            unique_id: result.uniqueId
+        }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+
+    } catch (e) {
+        return createErrorResponse(e.message, 500, 'api_error');
+    }
 }
 
 /**
@@ -1245,6 +1291,31 @@ function handleUI(request, apiKey) {
     </div>
 
     <div class="sidebar-content">
+      <!-- Introduction Section -->
+      <div class="section">
+        <div class="section-title" data-i18n="intro_title">Project Introduction</div>
+        <div class="api-info">
+          <p style="font-size: 0.75rem; line-height: 1.4; color: var(--text-secondary);" data-i18n="intro_content">
+            Ximagine Studio is a professional AI video generation proxy service. 
+            It provides a seamless bridge between your creative vision and state-of-the-art 
+            video synthesis models with high-performance processing and precise control.
+          </p>
+        </div>
+      </div>
+
+      <!-- Quick Start Section -->
+      <div class="section">
+        <div class="section-title" data-i18n="guide_title">Quick Start Guide</div>
+        <div class="api-info" style="font-size: 0.75rem; line-height: 1.6; color: var(--text-secondary);">
+          <ul style="padding-left: 1.2rem;" data-i18n="guide_list">
+            <li>Enter your vision in the Prompt area.</li>
+            <li>Select Aspect Ratio & Visual Style.</li>
+            <li>Click "Generate" to start production.</li>
+            <li>Use "Extend" on history items to continue.</li>
+          </ul>
+        </div>
+      </div>
+
       <!-- API Access -->
       <div class="section">
         <div class="section-title" data-i18n="api_access">API Access</div>
@@ -1282,9 +1353,7 @@ function handleUI(request, apiKey) {
         <div class="field">
           <span class="field-label" data-i18n="duration">Duration</span>
           <div class="segmented-control" id="duration-control">
-            <button class="segment active" data-value="5">5s</button>
-            <button class="segment" data-value="8">8s</button>
-            <button class="segment" data-value="10">10s</button>
+            <button class="segment active" data-value="6">6s</button>
           </div>
         </div>
 
@@ -1363,6 +1432,10 @@ function handleUI(request, apiKey) {
   <script>
     const I18N = {
       'en': {
+        intro_title: 'Project Introduction',
+        intro_content: 'Ximagine Studio is a professional AI video generation proxy service. It provides a seamless bridge between your creative vision and state-of-the-art video synthesis models with high-performance processing and precise control.',
+        guide_title: 'Quick Start Guide',
+        guide_list: '<li>Enter your vision in the Prompt area.</li><li>Select Aspect Ratio & Visual Style.</li><li>Click "Generate" to start production.</li><li>Use "Extend" on history items to continue.</li>',
         api_access: 'API Access',
         api_endpoint: 'Endpoint',
         api_key: 'API Key',
@@ -1395,12 +1468,18 @@ function handleUI(request, apiKey) {
         rendering: 'Rendering...',
         sync_count: 'Sync #',
         download: 'Download',
+        extend: 'Extend',
         delete: 'Delete',
         limit_reached: 'Character limit reached',
         gen_duration: 'Duration: {s}s',
-        timezone_label: 'UTC+8'
+        timezone_label: 'UTC+8',
+        mode_v2v: 'Video Extension'
       },
       'zh': {
+        intro_title: '項目介紹',
+        intro_content: 'Ximagine Studio 是一個專業的 AI 影片生成代理服務。它為您的創意願景與先進的影片合成模型之間提供了一個無縫橋樑，具有高性能處理和精確控制。',
+        guide_title: '快速入門指南',
+        guide_list: '<li>在提示詞區域輸入您的創意。</li><li>選擇畫面比例與視覺風格。</li><li>點擊「開始生成」啟動製作。</li><li>在歷史紀錄上使用「延長」繼續創作。</li>',
         api_access: 'API 訪問',
         api_endpoint: '接口地址',
         api_key: 'API 密鑰',
@@ -1433,10 +1512,12 @@ function handleUI(request, apiKey) {
         rendering: '渲染中...',
         sync_count: '同步第',
         download: '下載',
+        extend: '延長',
         delete: '刪除',
         limit_reached: '字數超過限制',
         gen_duration: '耗時: {s}s',
-        timezone_label: 'UTC+8'
+        timezone_label: 'UTC+8',
+        mode_v2v: '影片延長'
       }
     };
 
@@ -1485,7 +1566,10 @@ function handleUI(request, apiKey) {
       const strings = I18N[currentLang];
       document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (strings[key]) el.textContent = strings[key];
+        if (strings[key]) {
+          if (key === 'guide_list') el.innerHTML = strings[key];
+          else el.textContent = strings[key];
+        }
       });
       document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
@@ -1578,8 +1662,28 @@ function handleUI(request, apiKey) {
     function updateModeDisplay() {
       const strings = I18N[currentLang];
       const el = document.getElementById('mode-display');
-      el.textContent = uploadedImageUrl ? strings.mode_i2v : strings.mode_t2v;
-      el.style.color = uploadedImageUrl ? 'var(--primary)' : 'var(--text-main)';
+      if (uploadedImageUrl) {
+        if (uploadedImageUrl.includes('.mp4') || uploadedImageUrl.includes('video')) {
+          el.textContent = strings.mode_v2v;
+        } else {
+          el.textContent = strings.mode_i2v;
+        }
+        el.style.color = 'var(--primary)';
+      } else {
+        el.textContent = strings.mode_t2v;
+        el.style.color = 'var(--text-main)';
+      }
+    }
+
+    function extendVideo(url) {
+      uploadedImageUrl = url;
+      // 顯示預覽（若是影片，暫時使用佔位圖或直接顯示 URL）
+      document.getElementById('preview-img').src = 'https://via.placeholder.com/800x450/2563eb/ffffff?text=Video+Reference+Active';
+      document.getElementById('preview-box').style.display = 'block';
+      document.querySelector('#drop-zone p').style.display = 'none';
+      document.querySelector('#drop-zone i').style.display = 'none';
+      updateModeDisplay();
+      document.getElementById('prompt').focus();
     }
 
     // --- Tasks ---
@@ -1628,7 +1732,14 @@ function handleUI(request, apiKey) {
       const strings = I18N[currentLang];
       try {
         let model = 'grok-video-' + task.style;
-        if (task.image) model = 'grok-video-image';
+        if (task.image) {
+          // 判斷是圖片還是影片
+          if (task.image.includes('.mp4') || task.image.includes('video')) {
+            model = 'grok-video-image'; // 使用支援參考內容的模型
+          } else {
+            model = 'grok-video-image';
+          }
+        }
 
         const payload = {
           model: model,
@@ -1640,7 +1751,9 @@ function handleUI(request, apiKey) {
               duration: task.duration,
               resolution: task.resolution,
               clientPollMode: true,
-              imageUrls: task.image ? [task.image] : []
+              // 若為影片則傳入 videoUrl，若為圖片則傳入 imageUrls
+              videoUrl: (task.image && (task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
+              imageUrls: (task.image && !(task.image.includes('.mp4') || task.image.includes('video'))) ? [task.image] : []
             })
           }],
           stream: true
@@ -1759,6 +1872,7 @@ function handleUI(request, apiKey) {
 
         const actions = item.status === 'completed' ? \`
           <div class="card-actions">
+            <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
             <button class="btn-action" onclick="downloadVideo('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
             <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
           </div>
