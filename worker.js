@@ -32,7 +32,7 @@ const CONFIG = {
       "grok-video-spicy": { type: "video", mode: "spicy", channel: "GROK_IMAGINE", pageId: 886 },
       "grok-imagine-video": { type: "video", model: "grok-imagine", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖生視頻
-      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 900 },
+      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖像模型
       "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 }
   },
@@ -221,47 +221,21 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "channel": modelConfig.channel,
       "pageId": modelConfig.pageId,
       "source": "ximagine.io",
-      "watermarkFlag": true, // Default true
+      "watermarkFlag": true, // 強制開啟水印以提高成功率
       "privateFlag": false,
       "isTemp": true,
-      "model": "grok-imagine",
+      "model": modelConfig.model || "grok-imagine",
       "videoType": referenceUrl ? (isVideoExtension ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
-      "fps": 30, // 強制指定幀率以確保時長一致性
+      // 移除強制 FPS 以適應不同上游節點
       "imageUrls": (!isVideoExtension && referenceUrl) ? [referenceUrl] : [],
       "videoUrl": isVideoExtension ? referenceUrl : undefined
   };
 
   if (modelConfig.type === 'video') {
-      payload.mode = modelConfig.mode;
-
-      // 檢查是否有參考內容 (Prompt 中傳來的 JSON 格式)
-      try {
-          if (prompt && prompt.trim().startsWith('{')) {
-              const jsonPrompt = JSON.parse(prompt);
-              const hasVideo = jsonPrompt.videoUrl || (jsonPrompt.imageUrls && jsonPrompt.imageUrls[0]?.includes('.mp4'));
-              const hasImage = jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0 && !hasVideo;
-
-              if (hasVideo || hasImage) {
-                  payload.prompt = jsonPrompt.prompt || "Continue the scene";
-                  payload.videoType = hasVideo ? "video-to-video" : "image-to-video";
-                  payload.videoUrl = hasVideo ? (jsonPrompt.videoUrl || jsonPrompt.imageUrls[0]) : undefined;
-                  payload.imageUrls = hasImage ? jsonPrompt.imageUrls : [];
-                  payload.watermarkFlag = false; // 用戶要求去水印
-                  
-                  if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
-                      payload.duration = parseInt(jsonPrompt.duration);
-                  }
-                  if (jsonPrompt.resolution && validResolutions.includes(jsonPrompt.resolution)) {
-                      payload.resolution = jsonPrompt.resolution;
-                  }
-              }
-          }
-      } catch (e) {
-          // Not a JSON prompt, ignore
-      }
+      payload.mode = modelConfig.mode || "normal";
   }
 
   if (onProgress) await onProgress({ status: 'submitting', message: `正在提交任务 (${modelConfig.type})...` });
@@ -291,11 +265,15 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
   const createData = await createRes.json();
   if (createData.code !== 200 || !createData.data) {
-      // 传递原始 error code 给前端处理
-      if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
+      // 傳遞原始錯誤信息給前端
+      let errMsg = createData.message || JSON.stringify(createData);
+      if (createData.code === 100002 || errMsg.includes("HC verification")) {
           throw new Error(`HC_VERIFICATION_REQUIRED`);
       }
-      throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
+      if (errMsg.includes("sensitive") || errMsg.includes("violation")) {
+          throw new Error(`提示詞包含敏感內容或違反安全原則，請修改後重試。`);
+      }
+      throw new Error(`上游任務創建失敗 (${createData.code}): ${errMsg}`);
   }
 
   const taskId = createData.data;
