@@ -1734,6 +1734,6 @@ function handleUI(request, apiKey) {
     window.onload = init;
   </script>
 </body>
-</html>\`;
+</html>`;
   return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 }
