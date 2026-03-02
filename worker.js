@@ -1689,7 +1689,7 @@ function handleUI(request, apiKey) {
     }
 
     function getSelectedValue(id) {
-      const active = document.querySelector(\`#\${id} .segment.active\`);
+      const active = document.querySelector('#' + id + ' .segment.active');
       return active ? active.getAttribute('data-value') : null;
     }
 
@@ -1861,7 +1861,7 @@ function handleUI(request, apiKey) {
           if (done) break;
           buffer += decoder.decode(value);
           // 更魯棒的正則匹配，確保能從串流內容中提取任務 ID
-          const match = buffer.match(/TASK_ID:([^|\\\]]+)\|UID:([^|\\\]]+)/);
+          const match = buffer.match(/TASK_ID:([^| \\s]+).*?UID:([^| \\s]+)/);
           if (match) { 
             realId = match[1]; 
             uid = match[2]; 
