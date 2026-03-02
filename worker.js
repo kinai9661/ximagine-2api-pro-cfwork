@@ -96,6 +96,14 @@ export default {
           return handleVideoGenerations(request, apiKey);
       }
 
+      // 3.2 影片狀態查詢 (兼容 xAI 原生輪詢: GET /v1/videos/req_...)
+      if (url.pathname.startsWith('/v1/videos/') && request.method === 'GET') {
+          const taskId = url.pathname.split('/').pop();
+          if (taskId && taskId !== 'generations') {
+              return handleXaiVideoStatus(request, apiKey, taskId);
+          }
+      }
+
       // 4. 模型列表
       if (url.pathname === '/v1/models') return handleModelsRequest();
 
@@ -208,10 +216,8 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       finalResolution = "720p";
   }
 
-  const isVideoExtension = referenceUrl && (referenceUrl.includes('.mp4') || referenceUrl.includes('video'));
-
   const payload = {
-      "prompt": prompt || (referenceUrl ? "Continue this scene" : "Generate a cinematic video"),
+      "prompt": prompt,
       "channel": modelConfig.channel,
       "pageId": modelConfig.pageId,
       "source": "ximagine.io",
@@ -219,13 +225,12 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "privateFlag": false,
       "isTemp": true,
       "model": "grok-imagine",
-      "videoType": referenceUrl ? (isVideoExtension ? "video-to-video" : "image-to-video") : "text-to-video",
+      "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
       "fps": 30, // 強制指定幀率以確保時長一致性
-      "imageUrls": (!isVideoExtension && referenceUrl) ? [referenceUrl] : [],
-      "videoUrl": isVideoExtension ? referenceUrl : undefined
+      "imageUrls": referenceUrl ? [referenceUrl] : []
   };
 
   if (modelConfig.type === 'video') {
@@ -233,18 +238,15 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
       // 檢查是否有參考內容 (Prompt 中傳來的 JSON 格式)
       try {
-          if (prompt && prompt.trim().startsWith('{')) {
+          // 嘗試解析 prompt 是否為 JSON（包含 Img2Vid / Vid2Vid 參數）
+          if (prompt.trim().startsWith('{')) {
               const jsonPrompt = JSON.parse(prompt);
-              const hasVideo = jsonPrompt.videoUrl || (jsonPrompt.imageUrls && jsonPrompt.imageUrls[0]?.includes('.mp4'));
-              const hasImage = jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0 && !hasVideo;
-
-              if (hasVideo || hasImage) {
+              if ((jsonPrompt.imageUrls && jsonPrompt.imageUrls.length > 0) || jsonPrompt.videoUrl) {
                   payload.prompt = jsonPrompt.prompt || "Continue the scene";
-                  payload.videoType = hasVideo ? "video-to-video" : "image-to-video";
-                  payload.videoUrl = hasVideo ? (jsonPrompt.videoUrl || jsonPrompt.imageUrls[0]) : undefined;
-                  payload.imageUrls = hasImage ? jsonPrompt.imageUrls : [];
+                  payload.imageUrls = jsonPrompt.imageUrls || [jsonPrompt.videoUrl];
+                  payload.videoType = jsonPrompt.videoUrl ? "video-to-video" : "image-to-video";
                   payload.watermarkFlag = false; // 用戶要求去水印
-                  
+                  // 這裡可以覆蓋參數，如果 JSON 中提供了
                   if (jsonPrompt.duration && validDurations.includes(parseInt(jsonPrompt.duration))) {
                       payload.duration = parseInt(jsonPrompt.duration);
                   }
@@ -263,11 +265,6 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   const endpoint = modelConfig.type === 'image'
       ? `${CONFIG.API_BASE}/ai/grok/create`
       : `${CONFIG.API_BASE}/ai/video/create`;
-
-  // 增加影片延長任務日誌
-  if (isVideoExtension) {
-      logEvent('v2v_task_submitting', { taskId: uniqueId, videoUrl: referenceUrl, prompt: payload.prompt });
-  }
 
   const createRes = await fetch(endpoint, {
       method: 'POST',
@@ -411,8 +408,7 @@ async function handleChatCompletions(request, apiKey) {
   try {
       if (lastMsg.trim().startsWith('{') && lastMsg.includes('prompt')) {
           const parsed = JSON.parse(lastMsg);
-          // 只有當 parsed.prompt 明確有值時才覆蓋，否則保持 lastMsg 的原始解析或空
-          if (parsed.prompt !== undefined) prompt = parsed.prompt;
+          prompt = parsed.prompt || prompt;
           if (parsed.aspectRatio) aspectRatio = parsed.aspectRatio;
           if (parsed.duration) duration = parsed.duration;
           if (parsed.resolution) resolution = parsed.resolution;
@@ -457,9 +453,7 @@ async function handleChatCompletions(request, apiKey) {
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              // 確保標記格式清晰，避免被 JSON 轉義破壞
-              const taskInfo = `[TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]`;
-              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- ${taskInfo}\n`);
+              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
           } else {
               const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
               const finalMarkdown = `
@@ -542,7 +536,8 @@ async function handleVideoGenerations(request, apiKey) {
         const result = await performGeneration(prompt, aspectRatio, duration, resolution, model, null, true, referenceUrl);
 
         return new Response(JSON.stringify({
-            id: result.taskId,
+            request_id: result.taskId, // 兼容 xAI 原生格式
+            id: result.taskId, // 兼容原本格式
             object: "video.generation",
             created: Math.floor(result.created_at / 1000),
             model: model,
@@ -630,6 +625,60 @@ async function handleStatusQuery(request, apiKey) {
   } catch (e) {
       return createErrorResponse(e.message, 500, 'upstream_error');
   }
+}
+
+/**
+ * 兼容 xAI 官方原生影片狀態查詢接口 (GET /v1/videos/{request_id})
+ */
+async function handleXaiVideoStatus(request, apiKey, taskId) {
+    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
+
+    const headers = getCommonHeaders();
+    const channel = 'GROK_IMAGINE';
+
+    try {
+        const res = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${channel}`, {
+            method: 'GET',
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json'
+            }
+        });
+        const data = await res.json();
+
+        let responseBody = {
+            status: "processing",
+            model: "grok-imagine-video"
+        };
+
+        if (data.data) {
+            if (data.data.completeData) {
+                try {
+                    const inner = JSON.parse(data.data.completeData);
+                    if (inner.data && inner.data.result_urls && inner.data.result_urls.length > 0) {
+                        responseBody.status = "done";
+                        responseBody.video = {
+                            url: inner.data.result_urls[0],
+                            duration: 6, 
+                            respect_moderation: true
+                        };
+                    } else {
+                        responseBody.status = "failed";
+                    }
+                } catch (e) {
+                    responseBody.status = "failed";
+                }
+            } else if (data.data.failMsg) {
+                responseBody.status = "failed";
+            }
+        }
+
+        return new Response(JSON.stringify(responseBody), {
+            headers: corsHeaders({ 'Content-Type': 'application/json' })
+        });
+    } catch (e) {
+        return createErrorResponse(e.message, 500, 'upstream_error');
+    }
 }
 
 async function handleProxyDownload(request) {
@@ -1223,7 +1272,6 @@ function handleUI(request, apiKey) {
       object-fit: cover;
       border-radius: var(--radius);
       border: 1px solid var(--border-color);
-      background: #2563eb; /* 藍色背景作為圖片加載失敗時的底色 */
     }
     .btn-remove-img {
       position: absolute; top: 6px; right: 6px;
@@ -1397,7 +1445,7 @@ function handleUI(request, apiKey) {
           <i class="fas fa-cloud-arrow-up"></i>
           <p data-i18n="upload_hint">Click or drag to upload</p>
           <div class="preview-box" id="preview-box">
-            <img src="" class="preview-img" id="preview-img" onerror="this.style.display='none'; this.parentElement.style.background='#2563eb';">
+            <img src="" class="preview-img" id="preview-img">
             <button class="btn-remove-img" onclick="removeImage(event)"><i class="fas fa-times"></i></button>
           </div>
         </div>
@@ -1667,9 +1715,6 @@ function handleUI(request, apiKey) {
     function removeImage(e) {
       e.stopPropagation();
       uploadedImageUrl = null;
-      const previewImg = document.getElementById('preview-img');
-      previewImg.style.display = 'block'; // 恢復顯示，防止之前因 onerror 被隱藏
-      previewImg.src = '';
       document.getElementById('preview-box').style.display = 'none';
       document.querySelector('#drop-zone p').style.display = 'block';
       document.querySelector('#drop-zone i').style.display = 'block';
@@ -1695,14 +1740,13 @@ function handleUI(request, apiKey) {
 
     function extendVideo(url) {
       uploadedImageUrl = url;
-      // 使用穩定可靠的佔位圖服務，並標明為影片參考
-      document.getElementById('preview-img').src = 'https://placehold.co/800x450/2563eb/FFF?text=Video+Reference+Active';
+      // 顯示預覽（若是影片，暫時使用佔位圖或直接顯示 URL）
+      document.getElementById('preview-img').src = 'https://via.placeholder.com/800x450/2563eb/ffffff?text=Video+Reference+Active';
       document.getElementById('preview-box').style.display = 'block';
       document.querySelector('#drop-zone p').style.display = 'none';
       document.querySelector('#drop-zone i').style.display = 'none';
       updateModeDisplay();
       document.getElementById('prompt').focus();
-      showToast(I18N[currentLang].mode_v2v);
     }
 
     // --- Tasks ---
@@ -1720,17 +1764,12 @@ function handleUI(request, apiKey) {
     async function submitTask() {
       const strings = I18N[currentLang];
       const prompt = document.getElementById('prompt').value.trim();
-      
-      // 允許在有參考圖片/影片時不輸入提示詞
-      if (!prompt && !uploadedImageUrl) {
-        showToast(currentLang === 'zh' ? '請輸入提示詞' : 'Please enter a prompt');
-        return;
-      }
+      if (!prompt) return;
 
       const task = {
         id: 'task_' + Date.now(),
         status: 'pending',
-        prompt: prompt || (uploadedImageUrl ? (currentLang === 'zh' ? '接續場景...' : 'Continue scene...') : (currentLang === 'zh' ? '智能生成...' : 'AI Generation...')),
+        prompt: prompt,
         ratio: getSelectedValue('ratio-control'),
         duration: getSelectedValue('duration-control'),
         resolution: getSelectedValue('res-control'),
@@ -1792,23 +1831,18 @@ function handleUI(request, apiKey) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let realId = null, uid = null, type = 'video';
+        let realId = null, uid = null;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          const match = buffer.match(/\[TASK_ID:(.*?)\|UID:(.*?)\|TYPE:(.*?)\]/);
-          if (match) { 
-            realId = match[1]; 
-            uid = match[2]; 
-            type = match[3];
-            break; 
-          }
+          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
+          if (match) { realId = match[1]; uid = match[2]; break; }
         }
 
-        if (realId) startPolling(task, realId, uid, type);
-        else throw new Error('No task ID found in stream');
+        if (realId) startPolling(task, realId, uid);
+        else throw new Error('No task ID');
 
       } catch (e) {
         task.status = 'failed';
@@ -1817,7 +1851,7 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function startPolling(task, realId, uid, type) {
+    function startPolling(task, realId, uid) {
       const strings = I18N[currentLang];
       task.status = 'processing';
       
@@ -1827,8 +1861,8 @@ function handleUI(request, apiKey) {
         updateTaskCard(task);
 
         try {
-          // 傳送 createdAt 與 type 給後端
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&type=\${type}&createdAt=\${task.created_at}\`, {
+          // 傳送 createdAt 給後端用於計算精確耗時
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
