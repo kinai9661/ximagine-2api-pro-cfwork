@@ -45,8 +45,36 @@ const CONFIG = {
   UPLOAD_URL: "https://upload.aiquickdraw.com/upload",
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
-  PROJECT_VERSION: "4.5"
+  PROJECT_VERSION: "4.5",
+  TIMEZONE: "Asia/Shanghai" // 強制採用 UTC+8
 };
+
+/**
+ * 獲取 UTC+8 的 ISO 字串或格式化時間
+ */
+function getUTC8Time(timestamp = Date.now()) {
+    const date = new Date(timestamp);
+    return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: CONFIG.TIMEZONE,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    }).format(date).replace(/\//g, '-');
+}
+
+/**
+ * 日誌助手：增加監控維度
+ */
+function logEvent(event, data) {
+    const log = {
+        timestamp: getUTC8Time(),
+        unix: Date.now(),
+        event: event,
+        timezone: CONFIG.TIMEZONE,
+        ...data
+    };
+    console.log(`[MONITOR] ${JSON.stringify(log)}`);
+}
 
 // --- [第二部分: Worker 入口与路由] ---
 export default {
@@ -144,11 +172,12 @@ function getCommonHeaders(uniqueId = null) {
 }
 
 /**
-* 核心：执行视频生成任务
+* 核心：執行視頻生成任務
 */
 async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false) {
   const uniqueId = generateUniqueId();
   const headers = getCommonHeaders(uniqueId);
+  const taskStartTime = Date.now(); // 任務建立時間 (UTC)
 
   const modelConfig = CONFIG.MODEL_MAP[modelKey] || CONFIG.MODEL_MAP[CONFIG.DEFAULT_MODEL];
 
@@ -160,6 +189,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   }
 
   // 驗證時長 (支援 5, 8, 10)
+  // 核心修復：確保 Duration 參數嚴格對齊上游編碼器規格
   const validDurations = [5, 8, 10];
   let finalDuration = parseInt(duration) || 5;
   if (!validDurations.includes(finalDuration)) {
@@ -186,6 +216,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "aspectRatio": finalRatio,
       "duration": finalDuration,
       "resolution": finalResolution,
+      "fps": 30, // 強制指定幀率以確保時長一致性
       "imageUrls": []
   };
 
@@ -247,16 +278,24 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
   const taskId = createData.data;
 
+  logEvent('task_created', { taskId, uniqueId, model: modelKey, prompt: prompt.substring(0, 50) });
+
   // [WebUI 模式] 立即返回 ID
   if (clientPollMode) {
-      return { mode: 'async', taskId: taskId, uniqueId: uniqueId, type: modelConfig.type };
+      return { 
+          mode: 'async', 
+          taskId: taskId, 
+          uniqueId: uniqueId, 
+          type: modelConfig.type,
+          created_at: taskStartTime // 返回精確的建立時間戳
+      };
   }
 
   // [API 模式] 后端轮询
-  const startTime = Date.now();
+  const pollingStartTime = Date.now();
   let videoUrl = null;
 
-  while (Date.now() - startTime < CONFIG.POLLING_TIMEOUT) {
+  while (Date.now() - pollingStartTime < CONFIG.POLLING_TIMEOUT) {
       const pollRes = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${modelConfig.channel}`, {
           method: 'GET',
           headers: {
@@ -277,7 +316,24 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
               const innerData = JSON.parse(data.completeData);
               if (innerData.code === 200 && innerData.data && innerData.data.result_urls && innerData.data.result_urls.length > 0) {
                   videoUrl = innerData.data.result_urls[0];
-                  break;
+                  
+                  const taskEndTime = Date.now();
+                  const elapsedMs = taskEndTime - taskStartTime;
+                  
+                  logEvent('task_completed', { 
+                      taskId, 
+                      elapsedMs, 
+                      completed_at: taskEndTime,
+                      url: videoUrl 
+                  });
+
+                  return { 
+                      mode: 'sync', 
+                      videoUrl: videoUrl,
+                      created_at: taskStartTime,
+                      completed_at: taskEndTime,
+                      elapsed_ms: elapsedMs
+                  };
               } else {
                   // 任务完成但无 URL，通常是敏感词拦截
                   throw new Error(`生成被拦截或失败: ${JSON.stringify(innerData)}`);
@@ -287,6 +343,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
               console.error("解析 completeData 失败", e);
           }
       } else if (data.failMsg) {
+          logEvent('task_failed', { taskId, error: data.failMsg });
           throw new Error(`生成失败: ${data.failMsg}`);
       }
 
@@ -296,7 +353,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
               currentProgress = Math.floor(parseFloat(data.progress) * 100);
           } else {
               // If upstream doesn't provide progress, simulate a slow crawl
-              const elapsed = Date.now() - startTime;
+              const elapsed = Date.now() - pollingStartTime;
               currentProgress = Math.min(95, Math.floor((elapsed / CONFIG.POLLING_TIMEOUT) * 100));
           }
           await onProgress({ status: 'processing', progress: currentProgress });
@@ -304,6 +361,8 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
       await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
   }
+
+  logEvent('task_timeout', { taskId, elapsedMs: Date.now() - taskStartTime });
 
   if (!videoUrl) throw new Error("生成超时或未获取到视频地址");
 
@@ -446,6 +505,7 @@ async function handleStatusQuery(request, apiKey) {
   const taskId = url.searchParams.get('taskId');
   const uniqueId = url.searchParams.get('uniqueId');
   const type = url.searchParams.get('type') || 'video';
+  const createdAt = url.searchParams.get('createdAt'); // 從客戶端傳回的原始建立時間
 
   if (!taskId) return createErrorResponse('Missing taskId', 400, 'invalid_request');
 
@@ -462,7 +522,11 @@ async function handleStatusQuery(request, apiKey) {
       });
       const data = await res.json();
 
-      let result = { status: 'processing', progress: 0 };
+      let result = { 
+          status: 'processing', 
+          progress: 0,
+          timezone: CONFIG.TIMEZONE 
+      };
 
       if (data.data) {
           if (data.data.completeData) {
@@ -472,12 +536,21 @@ async function handleStatusQuery(request, apiKey) {
                       result.status = 'completed';
                       result.videoUrl = inner.data.result_urls[0]; // 兼容旧版
                       result.urls = inner.data.result_urls;
+                      
+                      const completedAt = Date.now();
+                      result.completed_at = completedAt;
+                      if (createdAt) {
+                          result.elapsed_ms = completedAt - parseInt(createdAt);
+                      }
+                      
+                      logEvent('task_polled_completed', { taskId, elapsedMs: result.elapsed_ms });
                   } else {
                       // [关键修复] 捕获无 URL 的情况，返回上游原始信息供调试
                       result.status = 'failed';
                       // 尝试提取错误信息，如果 inner.data 为空，可能被拦截
                       const debugInfo = JSON.stringify(inner).substring(0, 200);
                       result.error = `生成完成但无视频 (可能触发敏感词拦截): ${debugInfo}`;
+                      logEvent('task_polled_intercepted', { taskId, debugInfo });
                   }
               } catch (e) {
                   result.status = 'failed';
@@ -486,6 +559,7 @@ async function handleStatusQuery(request, apiKey) {
           } else if (data.data.failMsg) {
               result.status = 'failed';
               result.error = data.data.failMsg;
+              logEvent('task_polled_failed', { taskId, error: data.data.failMsg });
           } else {
               // 进度处理
               result.progress = data.data.progress ? Math.floor(parseFloat(data.data.progress) * 100) : 0;
@@ -1322,7 +1396,9 @@ function handleUI(request, apiKey) {
         sync_count: 'Sync #',
         download: 'Download',
         delete: 'Delete',
-        limit_reached: 'Character limit reached'
+        limit_reached: 'Character limit reached',
+        gen_duration: 'Duration: {s}s',
+        timezone_label: 'UTC+8'
       },
       'zh': {
         api_access: 'API 訪問',
@@ -1358,9 +1434,23 @@ function handleUI(request, apiKey) {
         sync_count: '同步第',
         download: '下載',
         delete: '刪除',
-        limit_reached: '字數超過限制'
+        limit_reached: '字數超過限制',
+        gen_duration: '耗時: {s}s',
+        timezone_label: 'UTC+8'
       }
     };
+
+    function formatTimeUTC8(ms) {
+      if (!ms) return '--:--';
+      const date = new Date(ms);
+      // 強制使用 UTC+8 顯示
+      const offset = 8 * 60; // UTC+8 in minutes
+      const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+      const nd = new Date(utc + (3600000 * 8));
+      return nd.getHours().toString().padStart(2, '0') + ':' + 
+             nd.getMinutes().toString().padStart(2, '0') + ':' + 
+             nd.getSeconds().toString().padStart(2, '0');
+    }
 
     let currentLang = localStorage.getItem('studio_lang') || 'en';
     let currentTheme = localStorage.getItem('studio_theme') || 'light';
@@ -1518,7 +1608,8 @@ function handleUI(request, apiKey) {
         resolution: getSelectedValue('res-control'),
         style: document.getElementById('video-mode').value,
         image: uploadedImageUrl,
-        date: new Date().toLocaleTimeString(),
+        created_at: Date.now(), // 精確毫秒時間戳
+        date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
         progress: 0,
         pollCount: 0
       };
@@ -1594,7 +1685,8 @@ function handleUI(request, apiKey) {
         updateTaskCard(task);
 
         try {
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}\`, {
+          // 傳送 createdAt 給後端用於計算精確耗時
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
@@ -1603,6 +1695,11 @@ function handleUI(request, apiKey) {
             clearInterval(timer);
             task.status = 'completed';
             task.url = data.videoUrl || data.urls[0];
+            
+            // 校準時間數據
+            if (data.completed_at) task.completed_at = data.completed_at;
+            if (data.elapsed_ms) task.elapsed_ms = data.elapsed_ms;
+            
             completeTask(task);
           } else if (data.status === 'failed') {
             clearInterval(timer);
@@ -1667,15 +1764,23 @@ function handleUI(request, apiKey) {
           </div>
         \` : '';
 
+        // 計算耗時文字
+        let durationText = '';
+        if (item.elapsed_ms) {
+          const s = (item.elapsed_ms / 1000).toFixed(1);
+          durationText = \`<span><i class="fas fa-stopwatch"></i> \${I18N[currentLang].gen_duration.replace('{s}', s)}</span>\`;
+        }
+
         card.innerHTML = \`
           <div class="card-media">\${media}</div>
           <div class="card-body">
             <div class="card-prompt">\${item.prompt}</div>
             <div class="card-footer">
               <div class="card-meta">
+                <span><i class="far fa-calendar"></i> \${item.date} (\${I18N[currentLang].timezone_label})</span>
                 <span><i class="fas fa-expand"></i> \${item.ratio}</span>
                 <span><i class="fas fa-clock"></i> \${item.duration}s</span>
-                <span><i class="fas fa-display"></i> \${item.resolution}</span>
+                \${durationText}
               </div>
               \${actions}
             </div>
