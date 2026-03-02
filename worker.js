@@ -457,7 +457,9 @@ async function handleChatCompletions(request, apiKey) {
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
+              // 確保標記格式清晰，避免被 JSON 轉義破壞
+              const taskInfo = `[TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]`;
+              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- ${taskInfo}\n`);
           } else {
               const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
               const finalMarkdown = `
@@ -1790,18 +1792,23 @@ function handleUI(request, apiKey) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let realId = null, uid = null;
+        let realId = null, uid = null, type = 'video';
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
-          if (match) { realId = match[1]; uid = match[2]; break; }
+          const match = buffer.match(/\[TASK_ID:(.*?)\|UID:(.*?)\|TYPE:(.*?)\]/);
+          if (match) { 
+            realId = match[1]; 
+            uid = match[2]; 
+            type = match[3];
+            break; 
+          }
         }
 
-        if (realId) startPolling(task, realId, uid);
-        else throw new Error('No task ID');
+        if (realId) startPolling(task, realId, uid, type);
+        else throw new Error('No task ID found in stream');
 
       } catch (e) {
         task.status = 'failed';
@@ -1810,7 +1817,7 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function startPolling(task, realId, uid) {
+    function startPolling(task, realId, uid, type) {
       const strings = I18N[currentLang];
       task.status = 'processing';
       
@@ -1820,8 +1827,8 @@ function handleUI(request, apiKey) {
         updateTaskCard(task);
 
         try {
-          // 傳送 createdAt 給後端用於計算精確耗時
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}\`, {
+          // 傳送 createdAt 與 type 給後端
+          const res = await fetch(`${ORIGIN}/v1/query/status?taskId=${realId}&uniqueId=${uid}&type=${type}&createdAt=${task.created_at}`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
