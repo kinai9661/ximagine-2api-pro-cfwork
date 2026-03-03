@@ -32,7 +32,7 @@ const CONFIG = {
       "grok-video-spicy": { type: "video", mode: "spicy", channel: "GROK_IMAGINE", pageId: 886 },
       "grok-imagine-video": { type: "video", model: "grok-imagine", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖生視頻
-      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 900 },
+      "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖像模型
       "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 }
   },
@@ -186,9 +186,9 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
   const modelConfig = CONFIG.MODEL_MAP[modelKey] || CONFIG.MODEL_MAP[CONFIG.DEFAULT_MODEL];
 
-  // 嚴格校驗比例
+  // 嚴格校驗與格式化比例
   const validRatios = ["1:1", "3:2", "2:3", "16:9", "9:16"];
-  let finalRatio = aspectRatio;
+  let finalRatio = aspectRatio ? aspectRatio.toString().replace('/', ':') : "1:1";
   if (!validRatios.includes(finalRatio)) {
       finalRatio = "1:1";
   }
@@ -216,12 +216,18 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "watermarkFlag": true, // Default true
       "privateFlag": false,
       "isTemp": true,
-      "model": "grok-imagine",
+      "model": modelConfig.model || "grok-imagine",
       "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
       "aspectRatio": finalRatio,
+      "ratio": finalRatio,
+      "aspect_ratio": finalRatio,
+      "aspectRatioName": finalRatio,
+      "ratio_str": finalRatio.replace(':', '/'),
+      "orientation": finalRatio === "9:16" ? "vertical" : (finalRatio === "1:1" ? "square" : "horizontal"),
+      "width": finalRatio === "16:9" ? 1280 : (finalRatio === "9:16" ? 720 : 1024),
+      "height": finalRatio === "16:9" ? 720 : (finalRatio === "9:16" ? 1280 : 1024),
       "duration": finalDuration,
       "resolution": finalResolution,
-      "fps": 30, // 強制指定幀率以確保時長一致性
       "imageUrls": referenceUrl ? [referenceUrl] : []
   };
 
@@ -1960,4 +1966,24 @@ function handleUI(request, apiKey) {
 </body>
 </html>`;
   return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+}// c:\Users\kimai\Downloads\Compressed\ximagine-2api-pro-cfwork-main_3\ximagine-2api-pro-cfwork-main\worker.js
+
+// 1. 优化比例校验与格式化
+const validRatios = ["1:1", "3:2", "2:3", "16:9", "9:16"];
+let finalRatio = aspectRatio ? aspectRatio.toString().replace('/', ':') : "1:1";
+if (!validRatios.includes(finalRatio)) {
+    finalRatio = "1:1";
 }
+
+// 2. 优化 Payload 构造
+const payload = {
+    // ... 其他参数
+    "model": modelConfig.model || "grok-imagine",
+    "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
+    "aspectRatio": finalRatio,
+    "ratio": finalRatio, // 增加备份字段
+    "duration": finalDuration,
+    "resolution": finalResolution,
+    // 移除 fps: 30，提高兼容性
+    "imageUrls": referenceUrl ? [referenceUrl] : []
+};
