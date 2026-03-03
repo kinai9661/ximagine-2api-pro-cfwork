@@ -1966,24 +1966,4 @@ function handleUI(request, apiKey) {
 </body>
 </html>`;
   return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-}// c:\Users\kimai\Downloads\Compressed\ximagine-2api-pro-cfwork-main_3\ximagine-2api-pro-cfwork-main\worker.js
-
-// 1. 优化比例校验与格式化
-const validRatios = ["1:1", "3:2", "2:3", "16:9", "9:16"];
-let finalRatio = aspectRatio ? aspectRatio.toString().replace('/', ':') : "1:1";
-if (!validRatios.includes(finalRatio)) {
-    finalRatio = "1:1";
 }
-
-// 2. 优化 Payload 构造
-const payload = {
-    // ... 其他参数
-    "model": modelConfig.model || "grok-imagine",
-    "videoType": referenceUrl ? (referenceUrl.includes('.mp4') ? "video-to-video" : "image-to-video") : "text-to-video",
-    "aspectRatio": finalRatio,
-    "ratio": finalRatio, // 增加备份字段
-    "duration": finalDuration,
-    "resolution": finalResolution,
-    // 移除 fps: 30，提高兼容性
-    "imageUrls": referenceUrl ? [referenceUrl] : []
-};
