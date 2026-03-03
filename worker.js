@@ -187,7 +187,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   const modelConfig = CONFIG.MODEL_MAP[modelKey] || CONFIG.MODEL_MAP[CONFIG.DEFAULT_MODEL];
 
   // 嚴格校驗與格式化比例
-  const validRatios = ["1:1", "3:2", "2:3", "16:9", "9:16"];
+  const validRatios = ["1:1"];
   let finalRatio = aspectRatio ? aspectRatio.toString().replace('/', ':') : "1:1";
   if (!validRatios.includes(finalRatio)) {
       finalRatio = "1:1";
@@ -201,11 +201,11 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       finalDuration = 6;
   }
 
-  // 驗證解析度 (支援 720p, 1080p)
-  const validResolutions = ["720p", "1080p"];
-  let finalResolution = resolution || "720p";
+  // 驗證解析度 (支援 1080p)
+  const validResolutions = ["1080p"];
+  let finalResolution = resolution || "1080p";
   if (!validResolutions.includes(finalResolution)) {
-      finalResolution = "720p";
+      finalResolution = "1080p";
   }
 
   const payload = {
@@ -224,8 +224,8 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       "aspectRatioName": finalRatio,
       "ratio_str": finalRatio.replace(':', '/'),
       "orientation": finalRatio === "9:16" ? "vertical" : (finalRatio === "1:1" ? "square" : "horizontal"),
-      "width": finalRatio === "16:9" ? 1280 : (finalRatio === "9:16" ? 720 : 1024),
-      "height": finalRatio === "16:9" ? 720 : (finalRatio === "9:16" ? 1280 : 1024),
+      "width": 1080,
+      "height": 1080,
       "duration": finalDuration,
       "resolution": finalResolution,
       "imageUrls": referenceUrl ? [referenceUrl] : []
@@ -399,7 +399,7 @@ async function handleChatCompletions(request, apiKey) {
   let prompt = lastMsg;
   let aspectRatio = "1:1";
   let duration = 6;
-  let resolution = "720p";
+  let resolution = "1080p";
   let clientPollMode = false;
   let referenceUrl = null;
 
@@ -524,7 +524,7 @@ async function handleVideoGenerations(request, apiKey) {
     const model = body.model || "grok-imagine-video";
     const aspectRatio = body.aspect_ratio || "1:1";
     const duration = body.duration || 6;
-    const resolution = body.resolution || "720p";
+    const resolution = body.resolution || "1080p";
     
     // 兼容 xAI 參考基底參數
     const referenceUrl = body.input_video_url || body.input_image_url || null;
@@ -1352,8 +1352,6 @@ function handleUI(request, apiKey) {
           <span class="field-label" data-i18n="aspect_ratio">Aspect Ratio</span>
           <div class="segmented-control" id="ratio-control">
             <button class="segment active" data-value="1:1">1:1</button>
-            <button class="segment" data-value="16:9">16:9</button>
-            <button class="segment" data-value="9:16">9:16</button>
           </div>
         </div>
 
@@ -1367,8 +1365,7 @@ function handleUI(request, apiKey) {
         <div class="field">
           <span class="field-label" data-i18n="resolution">Resolution</span>
           <div class="segmented-control" id="res-control">
-            <button class="segment active" data-value="720p">720p</button>
-            <button class="segment" data-value="1080p">1080p</button>
+            <button class="segment active" data-value="1080p">1080p</button>
           </div>
         </div>
 
