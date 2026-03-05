@@ -101,7 +101,10 @@ export default {
           return handleImageGenerations(request, apiKey);
       }
 
-      // 4. 模型列表
+      // 4. API 根路徑信息
+      if (url.pathname === '/v1') return handleApiRoot();
+
+      // 5. 模型列表
       if (url.pathname === '/v1/models') return handleModelsRequest();
 
       // 4.1 上传接口
@@ -727,6 +730,24 @@ function corsHeaders(headers = {}) {
 
 function handleCorsPreflight() {
   return new Response(null, { status: 204, headers: corsHeaders() });
+}
+
+function handleApiRoot() {
+  return new Response(JSON.stringify({
+      name: CONFIG.PROJECT_NAME,
+      version: CONFIG.PROJECT_VERSION,
+      message: "Ximagine-2API Pro - AI Video & Image Generation API",
+      endpoints: {
+          chat: "/v1/chat/completions",
+          videos: "/v1/videos/generations",
+          images: "/v1/images/generations",
+          models: "/v1/models",
+          upload: "/v1/upload",
+          status: "/v1/query/status",
+          proxy: "/v1/proxy/download"
+      },
+      documentation: "https://github.com/lza6/ximagine-2api-pro-cfwork"
+  }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 }
 
 function handleModelsRequest() {
