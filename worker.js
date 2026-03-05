@@ -92,8 +92,13 @@ export default {
       if (url.pathname === '/v1/chat/completions') return handleChatCompletions(request, apiKey);
 
       // 3.1 影片生成與延長接口 (兼容 xAI)
-      if (url.pathname === '/v1/videos/generations' || url.pathname === '/v1/images/generations') {
+      if (url.pathname === '/v1/videos/generations') {
           return handleVideoGenerations(request, apiKey);
+      }
+
+      // 3.2 圖片生成接口 (兼容 OpenAI)
+      if (url.pathname === '/v1/images/generations') {
+          return handleImageGenerations(request, apiKey);
       }
 
       // 4. 模型列表
@@ -540,6 +545,50 @@ async function handleVideoGenerations(request, apiKey) {
             model: model,
             status: "pending",
             unique_id: result.uniqueId
+        }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+
+    } catch (e) {
+        return createErrorResponse(e.message, 500, 'api_error');
+    }
+}
+
+/**
+ * 圖片生成接口 (兼容 OpenAI DALL-E 格式)
+ */
+async function handleImageGenerations(request, apiKey) {
+    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
+
+    let body;
+    try { body = await request.json(); } catch (e) { return createErrorResponse('Invalid JSON', 400, 'invalid_json'); }
+
+    const prompt = body.prompt || "";
+    const model = body.model || "grok-image";
+    const n = body.n || 1;
+    const size = body.size || "1024x1024";
+    
+    // 解析尺寸為比例
+    let aspectRatio = "1:1";
+    if (size.includes("x")) {
+        const [w, h] = size.split("x").map(Number);
+        if (w && h) {
+            const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+            const divisor = gcd(w, h);
+            aspectRatio = `${w/divisor}:${h/divisor}`;
+        }
+    }
+
+    try {
+        // 使用 clientPollMode = true 以符合非同步需求
+        const result = await performGeneration(prompt, aspectRatio, 6, "1080p", model, null, true, null);
+
+        return new Response(JSON.stringify({
+            created: Math.floor(result.created_at / 1000),
+            data: [{
+                url: `pending:${result.taskId}:${result.uniqueId}`,
+                taskId: result.taskId,
+                uniqueId: result.uniqueId,
+                status: "pending"
+            }]
         }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 
     } catch (e) {
@@ -1344,8 +1393,17 @@ function handleUI(request, apiKey) {
         </div>
       </div>
 
-      <!-- Video Settings -->
+      <!-- Generation Mode -->
       <div class="section">
+        <div class="section-title" data-i18n="gen_mode">Generation Mode</div>
+        <div class="segmented-control" id="mode-control" style="margin-bottom: 0;">
+          <button class="segment active" data-value="video" data-i18n="mode_video">Video</button>
+          <button class="segment" data-value="image" data-i18n="mode_image">Image</button>
+        </div>
+      </div>
+
+      <!-- Video Settings -->
+      <div class="section" id="video-settings">
         <div class="section-title" data-i18n="settings">Settings</div>
         
         <div class="field">
@@ -1355,7 +1413,7 @@ function handleUI(request, apiKey) {
           </div>
         </div>
 
-        <div class="field">
+        <div class="field" id="duration-field">
           <span class="field-label" data-i18n="duration">Duration</span>
           <div class="segmented-control" id="duration-control">
             <button class="segment active" data-value="6">6s</button>
@@ -1369,7 +1427,7 @@ function handleUI(request, apiKey) {
           </div>
         </div>
 
-        <div class="field">
+        <div class="field" id="style-field">
           <span class="field-label" data-i18n="style">Visual Style</span>
           <select id="video-mode">
             <option value="normal" data-i18n="style_normal">Realistic</option>
@@ -1456,10 +1514,15 @@ function handleUI(request, apiKey) {
         prompt: 'Prompt',
         prompt_placeholder: 'Describe your creative vision...',
         generate: 'Generate Video',
+        generate_image: 'Generate Image',
         tab_active: 'Active Tasks',
         tab_history: 'History',
         mode_t2v: 'Text-to-Video',
         mode_i2v: 'Image-to-Video',
+        mode_t2i: 'Text-to-Image',
+        gen_mode: 'Generation Mode',
+        mode_video: 'Video',
+        mode_image: 'Image',
         empty_gallery: 'Your production queue is empty',
         copy_success: 'Copied to clipboard',
         upload_success: 'Image uploaded',
@@ -1467,7 +1530,8 @@ function handleUI(request, apiKey) {
         gen_start: 'Starting generation...',
         gen_failed: 'Generation failed',
         gen_done: 'Video ready!',
-        confirm_delete: 'Delete this video?',
+        gen_done_image: 'Image ready!',
+        confirm_delete: 'Delete this item?',
         initializing: 'Initializing...',
         rendering: 'Rendering...',
         sync_count: 'Sync #',
@@ -1477,7 +1541,8 @@ function handleUI(request, apiKey) {
         limit_reached: 'Character limit reached',
         gen_duration: 'Duration: {s}s',
         timezone_label: 'UTC+8',
-        mode_v2v: 'Video Extension'
+        mode_v2v: 'Video Extension',
+        image_ready: 'Image generated successfully!'
       },
       'zh': {
         intro_title: '項目介紹',
@@ -1500,9 +1565,16 @@ function handleUI(request, apiKey) {
         prompt: '提示詞',
         prompt_placeholder: '描述您的創意願景...',
         generate: '開始生成',
+        generate_image: '生成圖片',
         tab_active: '進行中任務',
         tab_history: '歷史紀錄',
         mode_t2v: '文生影片',
+        mode_t2i: '文生圖片',
+        gen_mode: '生成模式',
+        mode_video: '影片',
+        mode_image: '圖片',
+        gen_done_image: '圖片生成完成！',
+        image_ready: '圖片已成功生成！',
         mode_i2v: '圖生影片',
         empty_gallery: '目前沒有生成中的任務',
         copy_success: '已複製到剪貼板',
@@ -1547,16 +1619,59 @@ function handleUI(request, apiKey) {
     const API_KEY = "${apiKey}";
     const ORIGIN = "${origin}";
 
+    let currentGenMode = 'video'; // 'video' or 'image'
+
     function init() {
       applyLanguage();
       applyTheme();
       initSegmentedControls();
       initUpload();
       initTabs();
+      initGenMode();
       updateCharCount();
       renderGallery();
 
       document.getElementById('prompt').addEventListener('input', updateCharCount);
+    }
+
+    // --- Generation Mode Logic ---
+    function initGenMode() {
+      const modeControl = document.getElementById('mode-control');
+      if (modeControl) {
+        modeControl.addEventListener('click', (e) => {
+          if (e.target.classList.contains('segment')) {
+            currentGenMode = e.target.getAttribute('data-value');
+            updateGenModeUI();
+          }
+        });
+      }
+    }
+
+    function updateGenModeUI() {
+      const strings = I18N[currentLang];
+      const durationField = document.getElementById('duration-field');
+      const styleField = document.getElementById('style-field');
+      const btnGen = document.getElementById('btn-gen');
+      const modeDisplay = document.getElementById('mode-display');
+      
+      if (currentGenMode === 'image') {
+        // 隱藏影片專用選項
+        if (durationField) durationField.style.display = 'none';
+        if (styleField) styleField.style.display = 'none';
+        // 更新按鈕文字
+        btnGen.querySelector('span').textContent = strings.generate_image || 'Generate Image';
+        // 更新模式顯示
+        modeDisplay.textContent = strings.mode_t2i || 'Text-to-Image';
+        modeDisplay.style.color = 'var(--primary)';
+      } else {
+        // 顯示影片專用選項
+        if (durationField) durationField.style.display = 'block';
+        if (styleField) styleField.style.display = 'block';
+        // 更新按鈕文字
+        btnGen.querySelector('span').textContent = strings.generate || 'Generate Video';
+        // 更新模式顯示
+        updateModeDisplay();
+      }
     }
 
     // --- i18n Logic ---
@@ -1669,6 +1784,15 @@ function handleUI(request, apiKey) {
     function updateModeDisplay() {
       const strings = I18N[currentLang];
       const el = document.getElementById('mode-display');
+      
+      // 如果是圖片生成模式
+      if (currentGenMode === 'image') {
+        el.textContent = strings.mode_t2i || 'Text-to-Image';
+        el.style.color = 'var(--primary)';
+        return;
+      }
+      
+      // 影片生成模式
       if (uploadedImageUrl) {
         if (uploadedImageUrl.includes('.mp4') || uploadedImageUrl.includes('video')) {
           el.textContent = strings.mode_v2v;
@@ -1720,6 +1844,7 @@ function handleUI(request, apiKey) {
         resolution: getSelectedValue('res-control'),
         style: document.getElementById('video-mode').value,
         image: uploadedImageUrl,
+        genMode: currentGenMode, // 'video' or 'image'
         created_at: Date.now(), // 精確毫秒時間戳
         date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
         progress: 0,
@@ -1739,15 +1864,27 @@ function handleUI(request, apiKey) {
     async function processTask(task) {
       const strings = I18N[currentLang];
       try {
-        let model = 'grok-video-' + task.style;
-        if (task.image) {
-          // 判斷是圖片還是影片
-          if (task.image.includes('.mp4') || task.image.includes('video')) {
-            model = 'grok-video-image'; // 使用支援參考內容的模型
-          } else {
-            model = 'grok-video-image';
+        let model;
+        let taskType = 'video';
+        
+        // 根據生成模式選擇模型
+        if (task.genMode === 'image') {
+          model = 'grok-image';
+          taskType = 'image';
+        } else {
+          model = 'grok-video-' + task.style;
+          if (task.image) {
+            // 判斷是圖片還是影片
+            if (task.image.includes('.mp4') || task.image.includes('video')) {
+              model = 'grok-video-image';
+            } else {
+              model = 'grok-video-image';
+            }
           }
         }
+        
+        // 記錄任務類型
+        task.type = taskType;
 
         const payload = {
           model: model,
@@ -1776,17 +1913,17 @@ function handleUI(request, apiKey) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let realId = null, uid = null;
+        let realId = null, uid = null, type = taskType;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
           const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
-          if (match) { realId = match[1]; uid = match[2]; break; }
+          if (match) { realId = match[1]; uid = match[2]; type = match[3] || taskType; break; }
         }
 
-        if (realId) startPolling(task, realId, uid);
+        if (realId) startPolling(task, realId, uid, type);
         else throw new Error('No task ID');
 
       } catch (e) {
@@ -1796,9 +1933,10 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function startPolling(task, realId, uid) {
+    function startPolling(task, realId, uid, type = 'video') {
       const strings = I18N[currentLang];
       task.status = 'processing';
+      task.type = type;
       
       const timer = setInterval(async () => {
         task.pollCount++;
@@ -1807,7 +1945,7 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 給後端用於計算精確耗時
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}\`, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&type=\${type}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
@@ -1843,7 +1981,13 @@ function handleUI(request, apiKey) {
       if (historyTasks.length > 50) historyTasks.pop();
       localStorage.setItem('studio_history', JSON.stringify(historyTasks));
       renderGallery();
-      showToast(I18N[currentLang].gen_done);
+      // 根據任務類型顯示不同的成功訊息
+      const strings = I18N[currentLang];
+      if (task.type === 'image') {
+        showToast(strings.gen_done_image || strings.gen_done);
+      } else {
+        showToast(strings.gen_done);
+      }
     }
 
     function renderGallery() {
@@ -1865,7 +2009,12 @@ function handleUI(request, apiKey) {
 
         let media = '';
         if (item.status === 'completed') {
-          media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
+          // 根據類型顯示不同媒體
+          if (item.type === 'image') {
+            media = \`<img src="\${item.url}" style="width:100%;height:100%;object-fit:contain;" alt="Generated Image">\`;
+          } else {
+            media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
+          }
         } else {
           media = \`
             <div class="loading-overlay">
@@ -1878,13 +2027,26 @@ function handleUI(request, apiKey) {
           if (item.image) media = \`<img src="\${item.image}" style="opacity:0.3">\` + media;
         }
 
-        const actions = item.status === 'completed' ? \`
-          <div class="card-actions">
-            <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
-            <button class="btn-action" onclick="downloadVideo('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
-            <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
-          </div>
-        \` : '';
+        // 根據類型顯示不同的操作按鈕
+        let actions = '';
+        if (item.status === 'completed') {
+          if (item.type === 'image') {
+            actions = \`
+              <div class="card-actions">
+                <button class="btn-action" onclick="downloadMedia('\${item.url}', 'image')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+              </div>
+            \`;
+          } else {
+            actions = \`
+              <div class="card-actions">
+                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="downloadMedia('\${item.url}', 'video')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+              </div>
+            \`;
+          }
+        }
 
         // 計算耗時文字
         let durationText = '';
@@ -1893,15 +2055,19 @@ function handleUI(request, apiKey) {
           durationText = \`<span><i class="fas fa-stopwatch"></i> \${I18N[currentLang].gen_duration.replace('{s}', s)}</span>\`;
         }
 
+        // 類型標籤
+        const typeLabel = item.type === 'image' ? '<span><i class="fas fa-image"></i> Image</span>' : '<span><i class="fas fa-video"></i> Video</span>';
+
         card.innerHTML = \`
           <div class="card-media">\${media}</div>
           <div class="card-body">
             <div class="card-prompt">\${item.prompt}</div>
             <div class="card-footer">
               <div class="card-meta">
-                <span><i class="far fa-calendar"></i> \${item.date} (\${I18N[currentLang].timezone_label})</span>
+                \${typeLabel}
+                <span><i class="far fa-calendar"></i> \${item.date}</span>
                 <span><i class="fas fa-expand"></i> \${item.ratio}</span>
-                <span><i class="fas fa-clock"></i> \${item.duration}s</span>
+                \${item.type !== 'image' ? \`<span><i class="fas fa-clock"></i> \${item.duration}s</span>\` : ''}
                 \${durationText}
               </div>
               \${actions}
@@ -1928,12 +2094,17 @@ function handleUI(request, apiKey) {
       renderGallery();
     }
 
-    function downloadVideo(url) {
+    function downloadMedia(url, type = 'video') {
       const proxyUrl = ORIGIN + '/v1/proxy/download?url=' + encodeURIComponent(url);
       const a = document.createElement('a');
       a.href = proxyUrl;
-      a.download = 'video.mp4';
+      a.download = type === 'image' ? 'image.png' : 'video.mp4';
       a.click();
+    }
+
+    // 保持向後兼容
+    function downloadVideo(url) {
+      downloadMedia(url, 'video');
     }
 
     // --- Utils ---
