@@ -2004,18 +2004,56 @@ function handleUI(request, apiKey) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let realId = null, uid = null;
+        let realId = null, uid = null, taskType = null;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
-          if (match) { realId = match[1]; uid = match[2]; break; }
+          
+          // 嘗試解析 JSON 格式的 SSE 數據
+          const lines = buffer.split('\n');
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.substring(6).trim();
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const data = JSON.parse(jsonStr);
+                  // 檢查是否有 task_id（異步模式 - 直接在頂層）
+                  if (data.task_id && data.unique_id) {
+                    realId = data.task_id;
+                    uid = data.unique_id;
+                    taskType = data.type || task.type;
+                    break;
+                  }
+                  // 檢查 choices delta（流式內容）
+                  if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+                    const content = data.choices[0].delta.content;
+                    // 嘗試從內容中解析 JSON
+                    try {
+                      const parsed = JSON.parse(content);
+                      if (parsed.task_id && parsed.unique_id) {
+                        realId = parsed.task_id;
+                        uid = parsed.unique_id;
+                        taskType = parsed.type || task.type;
+                        break;
+                      }
+                    } catch (e) {
+                      // 不是 JSON，繼續處理
+                    }
+                  }
+                } catch (e) {
+                  // JSON 解析失敗，繼續
+                }
+              }
+            }
+          }
+          if (realId) break;
         }
 
-        if (realId) startPolling(task, realId, uid);
-        else throw new Error('No task ID');
+        if (realId) startPolling(task, realId, uid, taskType);
+        else throw new Error('No task ID received from server');
 
       } catch (e) {
         task.status = 'failed';
@@ -2024,10 +2062,10 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function startPolling(task, realId, uid) {
+    function startPolling(task, realId, uid, taskType) {
       const strings = I18N[currentLang];
       task.status = 'processing';
-      const taskType = task.type || 'video'; // 默認為 video
+      const pollType = taskType || task.type || 'video'; // 使用傳入的類型或任務類型
       
       const timer = setInterval(async () => {
         task.pollCount++;
@@ -2036,7 +2074,7 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 給後端用於計算精確耗時
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}&type=\${taskType}\`, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}&type=\${pollType}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
