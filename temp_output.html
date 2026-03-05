@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XIMAGINE STUDIO | Professional AI Video Production</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg-main: #f8fafc;
+      --bg-sidebar: #ffffff;
+      --text-main: #1e293b;
+      --text-secondary: #64748b;
+      --border-color: #e2e8f0;
+      --card-bg: #ffffff;
+      --input-bg: #ffffff;
+      --accent: #3b82f6;
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --radius: 8px;
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    }
+
+    [data-theme="dark"] {
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
+      --bg-main: #0f172a;
+      --bg-sidebar: #1e293b;
+      --text-main: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --border-color: #334155;
+      --card-bg: #1e293b;
+      --input-bg: #0f172a;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 400px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.02);
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+    .sidebar::-webkit-scrollbar { display: none; }
+
+    .header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo i { font-size: 1.5rem; }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s;
+    }
+    .icon-btn:hover {
+      background: var(--bg-main);
+      color: var(--text-main);
+      border-color: var(--primary);
+    }
+
+    .sidebar-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .section-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .field-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    /* Segmented Control */
+    .segmented-control {
+      display: flex;
+      background: var(--bg-main);
+      padding: 4px;
+      border-radius: var(--radius);
+      gap: 4px;
+    }
+    .segment {
+      flex: 1;
+      border: none;
+      background: none;
+      color: var(--text-secondary);
+      padding: 8px 4px;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: calc(var(--radius) - 2px);
+      transition: 0.2s;
+      white-space: nowrap;
+    }
+    .segment.active {
+      background: var(--bg-sidebar);
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+
+    select, textarea, input {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px 12px;
+      font-size: 0.875rem;
+      border-radius: var(--radius);
+      outline: none;
+      transition: 0.2s;
+    }
+    select:focus, textarea:focus, input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+      line-height: 1.5;
+      font-family: inherit;
+    }
+
+    .btn-generate {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: 0.2s;
+      margin-top: 12px;
+    }
+    .btn-generate:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    .btn-generate:active { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* Main Area */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-header {
+      padding: 20px 32px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .main-title {
+      font-weight: 600;
+      font-size: 1.125rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 24px;
+    }
+    .tab {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 0.875rem;
+      padding: 4px 0;
+      cursor: pointer;
+      position: relative;
+      transition: 0.2s;
+    }
+    .tab.active { color: var(--primary); }
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -21px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--primary);
+    }
+
+    .content-area {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.05); }
+
+    .card-media {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card-media video, .card-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .card-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-prompt {
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--text-main);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+    }
+    .card-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .card-meta span { display: flex; align-items: center; gap: 4px; }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-action {
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-action:hover {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    .btn-action.delete:hover {
+      background: var(--error);
+      border-color: var(--error);
+    }
+
+    /* Loading Overlay */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px; color: white;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-container {
+      width: 140px;
+      height: 4px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* Upload Area */
+    .upload-area {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: 0.2s;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px; color: var(--text-secondary);
+      position: relative;
+    }
+    .upload-area:hover { border-color: var(--primary); background: rgba(37, 99, 235, 0.02); }
+    .upload-area i { font-size: 1.5rem; }
+    .upload-area p { font-size: 0.75rem; }
+    
+    .preview-box {
+      position: relative;
+      width: 100%;
+      display: none;
+    }
+    .preview-img {
+      width: 100%;
+      max-height: 180px;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 1px solid var(--border-color);
+      background: #2563eb; /* 藍色背景作為圖片加載失敗時的底色 */
+    }
+    .btn-remove-img {
+      position: absolute; top: 6px; right: 6px;
+      background: var(--error); color: white; border: none;
+      width: 24px; height: 24px; border-radius: 50%;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* Tooltip & Toast */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--text-main); color: var(--bg-sidebar);
+      padding: 12px 20px; border-radius: var(--radius);
+      font-size: 0.875rem; font-weight: 500;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+      transform: translateY(100px); opacity: 0;
+      transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      z-index: 1000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* Empty State */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-secondary); gap: 16px;
+    }
+    .empty-state i { font-size: 3rem; opacity: 0.2; }
+
+    /* API Info */
+    .api-info {
+      background: var(--bg-main);
+      padding: 16px; border-radius: var(--radius);
+      display: flex; flex-direction: column; gap: 12px; font-size: 0.75rem;
+    }
+    .api-item { display: flex; flex-direction: column; gap: 4px; }
+    .api-label { font-weight: 600; color: var(--text-main); }
+    .api-value-box {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-sidebar); padding: 6px 10px;
+      border-radius: 4px; border: 1px solid var(--border-color);
+    }
+    .api-value {
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      flex: 1;
+    }
+    .btn-copy { background: none; border: none; color: var(--primary); cursor: pointer; padding: 2px; }
+
+    /* Char Counter */
+    .char-count-wrap {
+      display: flex; justify-content: flex-end; font-size: 0.75rem;
+      color: var(--text-secondary); margin-top: 4px;
+    }
+    .char-count-wrap.warning { color: var(--warning); }
+    .char-count-wrap.error { color: var(--error); }
+
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; max-height: 50vh; }
+    }
+  </style>
+</head>
+<body data-theme="light">
+
+  <aside class="sidebar">
+    <div class="header">
+      <div class="logo">
+        <i class="fas fa-wand-magic-sparkles"></i>
+        <span>Studio</span>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" onclick="toggleLanguage()" title="Switch Language" id="lang-btn">
+          <i class="fas fa-language"></i>
+        </button>
+        <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="theme-btn">
+          <i class="fas fa-moon"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-content">
+      <!-- Introduction Section -->
+      <div class="section">
+        <div class="section-title" data-i18n="intro_title">Project Introduction</div>
+        <div class="api-info">
+          <p style="font-size: 0.75rem; line-height: 1.4; color: var(--text-secondary);" data-i18n="intro_content">
+            Ximagine Studio is a professional AI video generation proxy service. 
+            It provides a seamless bridge between your creative vision and state-of-the-art 
+            video synthesis models with high-performance processing and precise control.
+          </p>
+        </div>
+      </div>
+
+      <!-- Quick Start Section -->
+      <div class="section">
+        <div class="section-title" data-i18n="guide_title">Quick Start Guide</div>
+        <div class="api-info" style="font-size: 0.75rem; line-height: 1.6; color: var(--text-secondary);">
+          <ul style="padding-left: 1.2rem;" data-i18n="guide_list">
+            <li>Enter your vision in the Prompt area.</li>
+            <li>Select Aspect Ratio & Visual Style.</li>
+            <li>Click "Generate" to start production.</li>
+            <li>Use "Extend" on history items to continue.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- API Access -->
+      <div class="section">
+        <div class="section-title" data-i18n="api_access">API Access</div>
+        <div class="api-info">
+          <div class="api-item">
+            <span class="api-label" data-i18n="api_endpoint">Endpoint</span>
+            <div class="api-value-box">
+              <span class="api-value" id="api-origin">https://ximagine-2api-pro-cfwork.kines966176.workers.dev</span>
+              <button class="btn-copy" onclick="copyApiOrigin()"><i class="far fa-copy"></i></button>
+            </div>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api_key">API Key</span>
+            <div class="api-value-box">
+              <span class="api-value" id="api-key">1</span>
+              <button class="btn-copy" onclick="copyApiKey()"><i class="far fa-copy"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode Selection -->
+      <div class="section">
+        <div class="section-title" data-i18n="mode_selection">Generation Mode</div>
+        <div class="segmented-control" id="gen-mode-control" style="margin-bottom: 12px;">
+          <button class="segment active" data-value="video" data-i18n="mode_video">Video</button>
+          <button class="segment" data-value="image" data-i18n="mode_image">Image</button>
+        </div>
+      </div>
+
+      <!-- Video Settings -->
+      <div class="section" id="video-settings">
+        <div class="section-title" data-i18n="settings">Settings</div>
+        
+        <div class="field">
+          <span class="field-label" data-i18n="aspect_ratio">Aspect Ratio</span>
+          <div class="segmented-control" id="ratio-control">
+            <button class="segment active" data-value="1:1">1:1</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="duration">Duration</span>
+          <div class="segmented-control" id="duration-control">
+            <button class="segment active" data-value="6">6s</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="resolution">Resolution</span>
+          <div class="segmented-control" id="res-control">
+            <button class="segment active" data-value="1080p">1080p</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="style">Visual Style</span>
+          <select id="video-mode">
+            <option value="normal" data-i18n="style_normal">Realistic</option>
+            <option value="fun" data-i18n="style_fun">Cartoon</option>
+            <option value="spicy" data-i18n="style_spicy">Dynamic</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Image Settings -->
+      <div class="section" id="image-settings" style="display: none;">
+        <div class="section-title" data-i18n="image_settings">Image Settings</div>
+        
+        <div class="field">
+          <span class="field-label" data-i18n="image_size">Size</span>
+          <select id="image-size">
+            <option value="1024x1024">1024×1024 (Square)</option>
+            <option value="1792x1024">1792×1024 (Landscape)</option>
+            <option value="1024x1792">1024×1792 (Portrait)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="image_quality">Quality</span>
+          <div class="segmented-control" id="quality-control">
+            <button class="segment active" data-value="standard">Standard</button>
+            <button class="segment" data-value="hd">HD</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="image_style">Style</span>
+          <div class="segmented-control" id="img-style-control">
+            <button class="segment active" data-value="vivid">Vivid</button>
+            <button class="segment" data-value="natural">Natural</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Image Reference -->
+      <div class="section">
+        <div class="section-title" data-i18n="reference_image">Reference Image</div>
+        <div class="upload-area" id="drop-zone">
+          <i class="fas fa-cloud-arrow-up"></i>
+          <p data-i18n="upload_hint">Click or drag to upload</p>
+          <div class="preview-box" id="preview-box">
+            <img src="" class="preview-img" id="preview-img" onerror="this.style.display='none'; this.parentElement.style.background='#2563eb';">
+            <button class="btn-remove-img" onclick="removeImage(event)"><i class="fas fa-times"></i></button>
+          </div>
+        </div>
+        <input type="file" id="file-input" style="display:none" accept="image/*">
+      </div>
+
+      <!-- Prompt -->
+      <div class="section">
+        <div class="section-title" data-i18n="prompt">Prompt</div>
+        <div class="field">
+          <textarea id="prompt" data-i18n-placeholder="prompt_placeholder" placeholder="Describe your creative vision..."></textarea>
+          <div class="char-count-wrap" id="char-counter">
+            <span id="char-count">0</span>/1800
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-generate" id="btn-gen" onclick="submitTask()">
+        <i class="fas fa-play"></i>
+        <span data-i18n="generate">Generate Video</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="main-header">
+      <div class="tabs">
+        <button class="tab active" data-tab="active" data-i18n="tab_active">Active Tasks</button>
+        <button class="tab" data-tab="history" data-i18n="tab_history">History</button>
+      </div>
+      <div class="main-title" id="mode-display" data-i18n="mode_t2v">Text-to-Video</div>
+    </header>
+
+    <div class="content-area">
+      <div class="gallery" id="gallery">
+        <!-- Gallery Items -->
+      </div>
+      <div id="empty-state" class="empty-state">
+        <i class="fas fa-photo-film"></i>
+        <p data-i18n="empty_gallery">Your production queue is empty</p>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const I18N = {
+      'en': {
+        intro_title: 'Project Introduction',
+        intro_content: 'Ximagine Studio is a professional AI video generation proxy service. It provides a seamless bridge between your creative vision and state-of-the-art video synthesis models with high-performance processing and precise control.',
+        guide_title: 'Quick Start Guide',
+        guide_list: '<li>Enter your vision in the Prompt area.</li><li>Select Aspect Ratio & Visual Style.</li><li>Click "Generate" to start production.</li><li>Use "Extend" on history items to continue.</li>',
+        api_access: 'API Access',
+        api_endpoint: 'Endpoint',
+        api_key: 'API Key',
+        settings: 'Settings',
+        aspect_ratio: 'Aspect Ratio',
+        duration: 'Duration',
+        resolution: 'Resolution',
+        style: 'Visual Style',
+        style_normal: 'Realistic',
+        style_fun: 'Cartoon',
+        style_spicy: 'Dynamic',
+        reference_image: 'Reference Image',
+        upload_hint: 'Click or drag to upload',
+        prompt: 'Prompt',
+        prompt_placeholder: 'Describe your creative vision...',
+        generate: 'Generate Video',
+        generate_image: 'Generate Image',
+        tab_active: 'Active Tasks',
+        tab_history: 'History',
+        mode_t2v: 'Text-to-Video',
+        mode_i2v: 'Image-to-Video',
+        mode_video: 'Video',
+        mode_image: 'Image',
+        mode_selection: 'Generation Mode',
+        image_settings: 'Image Settings',
+        image_size: 'Size',
+        image_quality: 'Quality',
+        image_style: 'Style',
+        empty_gallery: 'Your production queue is empty',
+        copy_success: 'Copied to clipboard',
+        upload_success: 'Image uploaded',
+        upload_failed: 'Upload failed',
+        gen_start: 'Starting generation...',
+        gen_failed: 'Generation failed',
+        gen_done: 'Video ready!',
+        gen_done_image: 'Image ready!',
+        confirm_delete: 'Delete this item?',
+        initializing: 'Initializing...',
+        rendering: 'Rendering...',
+        sync_count: 'Sync #',
+        download: 'Download',
+        extend: 'Extend',
+        delete: 'Delete',
+        limit_reached: 'Character limit reached',
+        gen_duration: 'Duration: {s}s',
+        timezone_label: 'UTC+8',
+        mode_v2v: 'Video Extension'
+      },
+      'zh': {
+        intro_title: '項目介紹',
+        intro_content: 'Ximagine Studio 是一個專業的 AI 影片生成代理服務。它為您的創意願景與先進的影片合成模型之間提供了一個無縫橋樑，具有高性能處理和精確控制。',
+        guide_title: '快速入門指南',
+        guide_list: '<li>在提示詞區域輸入您的創意。</li><li>選擇畫面比例與視覺風格。</li><li>點擊「開始生成」啟動製作。</li><li>在歷史紀錄上使用「延長」繼續創作。</li>',
+        api_access: 'API 訪問',
+        api_endpoint: '接口地址',
+        api_key: 'API 密鑰',
+        settings: '參數設置',
+        aspect_ratio: '畫面比例',
+        duration: '影片時長',
+        resolution: '解析度',
+        style: '視覺風格',
+        style_normal: '寫實主義',
+        style_fun: '趣味卡通',
+        style_spicy: '動態模式',
+        reference_image: '參考圖片',
+        upload_hint: '點擊或拖拽上傳',
+        prompt: '提示詞',
+        prompt_placeholder: '描述您的創意願景...',
+        generate: '開始生成',
+        generate_image: '生成圖片',
+        tab_active: '進行中任務',
+        tab_history: '歷史紀錄',
+        mode_t2v: '文生影片',
+        mode_i2v: '圖生影片',
+        mode_video: '影片',
+        mode_image: '圖片',
+        mode_selection: '生成模式',
+        image_settings: '圖片設置',
+        image_size: '尺寸',
+        image_quality: '品質',
+        image_style: '風格',
+        empty_gallery: '目前沒有生成中的任務',
+        copy_success: '已複製到剪貼板',
+        upload_success: '圖片上傳成功',
+        upload_failed: '上傳失敗',
+        gen_start: '開始生成...',
+        gen_failed: '生成失敗',
+        gen_done: '影片生成完成！',
+        gen_done_image: '圖片生成完成！',
+        confirm_delete: '確定要刪除這個項目嗎？',
+        initializing: '初始化中...',
+        rendering: '渲染中...',
+        sync_count: '同步第',
+        download: '下載',
+        extend: '延長',
+        delete: '刪除',
+        limit_reached: '字數超過限制',
+        gen_duration: '耗時: {s}s',
+        timezone_label: 'UTC+8',
+        mode_v2v: '影片延長'
+      }
+    };
+
+    function formatTimeUTC8(ms) {
+      if (!ms) return '--:--';
+      const date = new Date(ms);
+      // 強制使用 UTC+8 顯示
+      const offset = 8 * 60; // UTC+8 in minutes
+      const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+      const nd = new Date(utc + (3600000 * 8));
+      return nd.getHours().toString().padStart(2, '0') + ':' + 
+             nd.getMinutes().toString().padStart(2, '0') + ':' + 
+             nd.getSeconds().toString().padStart(2, '0');
+    }
+
+    let currentLang = localStorage.getItem('studio_lang') || 'en';
+    let currentTheme = localStorage.getItem('studio_theme') || 'light';
+    let uploadedImageUrl = null;
+    let activeTasks = [];
+    let historyTasks = JSON.parse(localStorage.getItem('studio_history') || '[]');
+    let currentTab = 'active';
+    let currentGenMode = 'video'; // 'video' or 'image'
+
+    const API_KEY = "1";
+    const ORIGIN = "https://ximagine-2api-pro-cfwork.kines966176.workers.dev";
+
+    function init() {
+      try {
+        applyLanguage();
+        applyTheme();
+        initSegmentedControls();
+        initUpload();
+        initTabs();
+        initGenModeToggle();
+        updateGenModeUI();
+        updateCharCount();
+        renderGallery();
+
+        const promptEl = document.getElementById('prompt');
+        if (promptEl) {
+          promptEl.addEventListener('input', updateCharCount);
+        }
+      } catch (e) {
+        console.error('Init error:', e);
+      }
+    }
+
+    // --- Generation Mode Toggle ---
+    function initGenModeToggle() {
+      const genModeControl = document.getElementById('gen-mode-control');
+      if (genModeControl) {
+        genModeControl.addEventListener('click', (e) => {
+          const segment = e.target.closest('.segment');
+          if (segment) {
+            genModeControl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
+            segment.classList.add('active');
+            currentGenMode = segment.getAttribute('data-value');
+            updateGenModeUI();
+          }
+        });
+      }
+    }
+
+    function updateGenModeUI() {
+      const videoSettings = document.getElementById('video-settings');
+      const imageSettings = document.getElementById('image-settings');
+      const genBtn = document.getElementById('btn-gen');
+      const modeDisplay = document.getElementById('mode-display');
+      const strings = I18N[currentLang];
+
+      // 空值檢查
+      if (!videoSettings || !imageSettings || !genBtn || !modeDisplay) return;
+
+      if (currentGenMode === 'video') {
+        videoSettings.style.display = 'block';
+        imageSettings.style.display = 'none';
+        genBtn.innerHTML = '<i class="fas fa-play"></i> <span data-i18n="generate">' + strings.generate + '</span>';
+        if (uploadedImageUrl) {
+          modeDisplay.textContent = strings.mode_i2v;
+        } else {
+          modeDisplay.textContent = strings.mode_t2v;
+        }
+      } else {
+        videoSettings.style.display = 'none';
+        imageSettings.style.display = 'block';
+        genBtn.innerHTML = '<i class="fas fa-image"></i> <span data-i18n="generate_image">' + strings.generate_image + '</span>';
+        modeDisplay.textContent = strings.mode_image;
+      }
+    }
+
+    // --- i18n Logic ---
+    function toggleLanguage() {
+      currentLang = currentLang === 'en' ? 'zh' : 'en';
+      localStorage.setItem('studio_lang', currentLang);
+      applyLanguage();
+    }
+
+    function applyLanguage() {
+      const strings = I18N[currentLang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (strings[key]) {
+          if (key === 'guide_list') el.innerHTML = strings[key];
+          else el.textContent = strings[key];
+        }
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (strings[key]) el.placeholder = strings[key];
+      });
+      updateModeDisplay();
+    }
+
+    // --- Theme Logic ---
+    function toggleTheme() {
+      currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+      localStorage.setItem('studio_theme', currentTheme);
+      applyTheme();
+    }
+
+    function applyTheme() {
+      document.body.setAttribute('data-theme', currentTheme);
+      const icon = document.querySelector('#theme-btn i');
+      if (icon) {
+        icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+      }
+    }
+
+    // --- Controls ---
+    function initSegmentedControls() {
+      document.querySelectorAll('.segmented-control').forEach(ctrl => {
+        ctrl.addEventListener('click', (e) => {
+          const segment = e.target.closest('.segment');
+          if (segment) {
+            ctrl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
+            segment.classList.add('active');
+          }
+        });
+      });
+    }
+
+    function getSelectedValue(id) {
+      const active = document.querySelector('#' + id + ' .segment.active');
+      return active ? active.getAttribute('data-value') : null;
+    }
+
+    // --- Upload Logic ---
+    function initUpload() {
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+      
+      if (!dropZone || !fileInput) return;
+      
+      dropZone.onclick = () => { if (!uploadedImageUrl) fileInput.click(); };
+      
+      fileInput.onchange = (e) => {
+        if (e.target.files[0]) uploadFile(e.target.files[0]);
+      };
+
+      dropZone.ondragover = (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; };
+      dropZone.ondragleave = () => { dropZone.style.borderColor = 'var(--border-color)'; };
+      dropZone.ondrop = (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+      };
+    }
+
+    async function uploadFile(file) {
+      const strings = I18N[currentLang];
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        showToast(strings.initializing);
+        
+        const res = await fetch(ORIGIN + '/v1/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if (data.success && data.data?.url) {
+          uploadedImageUrl = data.data.url;
+          document.getElementById('preview-img').src = uploadedImageUrl;
+          document.getElementById('preview-box').style.display = 'block';
+          document.querySelector('#drop-zone p').style.display = 'none';
+          document.querySelector('#drop-zone i').style.display = 'none';
+          updateModeDisplay();
+          showToast(strings.upload_success);
+        }
+      } catch (e) {
+        showToast(strings.upload_failed);
+      }
+    }
+
+    function removeImage(e) {
+      e.stopPropagation();
+      uploadedImageUrl = null;
+      const previewImg = document.getElementById('preview-img');
+      previewImg.style.display = 'block'; // 恢復顯示，防止之前因 onerror 被隱藏
+      previewImg.src = '';
+      document.getElementById('preview-box').style.display = 'none';
+      document.querySelector('#drop-zone p').style.display = 'block';
+      document.querySelector('#drop-zone i').style.display = 'block';
+      document.getElementById('file-input').value = '';
+      updateModeDisplay();
+    }
+
+    function updateModeDisplay() {
+      const strings = I18N[currentLang];
+      const el = document.getElementById('mode-display');
+      
+      if (currentGenMode === 'image') {
+        el.textContent = strings.mode_image;
+        el.style.color = 'var(--primary)';
+        return;
+      }
+      
+      if (uploadedImageUrl) {
+        if (uploadedImageUrl.includes('.mp4') || uploadedImageUrl.includes('video')) {
+          el.textContent = strings.mode_v2v;
+        } else {
+          el.textContent = strings.mode_i2v;
+        }
+        el.style.color = 'var(--primary)';
+      } else {
+        el.textContent = strings.mode_t2v;
+        el.style.color = 'var(--text-main)';
+      }
+    }
+
+    function extendVideo(url) {
+      uploadedImageUrl = url;
+      // 使用穩定可靠的佔位圖服務，並標明為影片參考
+      document.getElementById('preview-img').src = 'https://placehold.co/800x450/2563eb/FFF?text=Video+Reference+Active';
+      document.getElementById('preview-box').style.display = 'block';
+      document.querySelector('#drop-zone p').style.display = 'none';
+      document.querySelector('#drop-zone i').style.display = 'none';
+      updateModeDisplay();
+      document.getElementById('prompt').focus();
+      showToast(I18N[currentLang].mode_v2v);
+    }
+
+    // --- Tasks ---
+    function initTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.onclick = () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          currentTab = tab.getAttribute('data-tab');
+          renderGallery();
+        };
+      });
+    }
+
+    async function submitTask() {
+      const strings = I18N[currentLang];
+      const prompt = document.getElementById('prompt').value.trim();
+      if (!prompt) return;
+
+      const task = {
+        id: 'task_' + Date.now(),
+        status: 'pending',
+        prompt: prompt,
+        type: currentGenMode, // 'video' or 'image'
+        // Video settings
+        ratio: getSelectedValue('ratio-control'),
+        duration: getSelectedValue('duration-control'),
+        resolution: getSelectedValue('res-control'),
+        style: document.getElementById('video-mode').value,
+        // Image settings
+        imageSize: document.getElementById('image-size')?.value || '1024x1024',
+        imageQuality: getSelectedValue('quality-control') || 'standard',
+        imageStyle: getSelectedValue('img-style-control') || 'vivid',
+        // Common
+        image: uploadedImageUrl,
+        created_at: Date.now(),
+        date: formatTimeUTC8(Date.now()),
+        progress: 0,
+        pollCount: 0
+      };
+
+      activeTasks.unshift(task);
+      if (currentTab !== 'active') {
+        document.querySelector('[data-tab="active"]').click();
+      } else {
+        renderGallery();
+      }
+      
+      processTask(task);
+    }
+
+    async function processTask(task) {
+      const strings = I18N[currentLang];
+      try {
+        let model, payload;
+
+        if (task.type === 'image') {
+          // 圖片生成模式
+          model = 'grok-image';
+          payload = {
+            model: model,
+            messages: [{
+              role: 'user',
+              content: JSON.stringify({
+                prompt: task.prompt,
+                aspectRatio: task.imageSize.includes('1024x1024') ? '1:1' :
+                             (task.imageSize.includes('1792x1024') ? '16:9' : '9:16'),
+                clientPollMode: true
+              })
+            }],
+            stream: true
+          };
+        } else {
+          // 影片生成模式
+          model = 'grok-video-' + task.style;
+          if (task.image) {
+            if (task.image.includes('.mp4') || task.image.includes('video')) {
+              model = 'grok-video-image';
+            } else {
+              model = 'grok-video-image';
+            }
+          }
+          payload = {
+            model: model,
+            messages: [{
+              role: 'user',
+              content: JSON.stringify({
+                prompt: task.prompt,
+                aspectRatio: task.ratio,
+                duration: task.duration,
+                resolution: task.resolution,
+                clientPollMode: true,
+                videoUrl: (task.image && (task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
+                imageUrls: (task.image && !(task.image.includes('.mp4') || task.image.includes('video'))) ? [task.image] : []
+              })
+            }],
+            stream: true
+          };
+        }
+
+        const res = await fetch(ORIGIN + '/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let realId = null, uid = null, taskType = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value);
+          
+          // 嘗試解析 JSON 格式的 SSE 數據
+          const lines = buffer.split('
+');
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.substring(6).trim();
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const data = JSON.parse(jsonStr);
+                  // 檢查是否有 task_id（異步模式 - 直接在頂層）
+                  if (data.task_id && data.unique_id) {
+                    realId = data.task_id;
+                    uid = data.unique_id;
+                    taskType = data.type || task.type;
+                    break;
+                  }
+                  // 檢查 choices delta（流式內容）
+                  if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+                    const content = data.choices[0].delta.content;
+                    // 嘗試從內容中解析 JSON
+                    try {
+                      const parsed = JSON.parse(content);
+                      if (parsed.task_id && parsed.unique_id) {
+                        realId = parsed.task_id;
+                        uid = parsed.unique_id;
+                        taskType = parsed.type || task.type;
+                        break;
+                      }
+                    } catch (e) {
+                      // 不是 JSON，繼續處理
+                    }
+                  }
+                } catch (e) {
+                  // JSON 解析失敗，繼續
+                }
+              }
+            }
+          }
+          if (realId) break;
+        }
+
+        if (realId) startPolling(task, realId, uid, taskType);
+        else throw new Error('No task ID received from server');
+
+      } catch (e) {
+        task.status = 'failed';
+        renderGallery();
+        showToast(strings.gen_failed);
+      }
+    }
+
+    function startPolling(task, realId, uid, taskType) {
+      const strings = I18N[currentLang];
+      task.status = 'processing';
+      const pollType = taskType || task.type || 'video'; // 使用傳入的類型或任務類型
+      
+      const timer = setInterval(async () => {
+        task.pollCount++;
+        if (task.progress < 90) task.progress += 2;
+        updateTaskCard(task);
+
+        try {
+          // 傳送 createdAt 給後端用於計算精確耗時
+          const res = await fetch(`${ORIGIN}/v1/query/status?taskId=${realId}&uniqueId=${uid}&createdAt=${task.created_at}&type=${pollType}`, {
+            headers: { 'Authorization': 'Bearer ' + API_KEY }
+          });
+          const data = await res.json();
+
+          if (data.status === 'completed' || data.videoUrl || data.urls) {
+            clearInterval(timer);
+            task.status = 'completed';
+            task.url = data.videoUrl || (data.urls && data.urls[0]);
+            
+            // 校準時間數據
+            if (data.completed_at) task.completed_at = data.completed_at;
+            if (data.elapsed_ms) task.elapsed_ms = data.elapsed_ms;
+            
+            completeTask(task);
+          } else if (data.status === 'failed') {
+            clearInterval(timer);
+            task.status = 'failed';
+            renderGallery();
+            showToast(strings.gen_failed);
+          } else if (data.progress) {
+            task.progress = data.progress;
+            updateTaskCard(task);
+          }
+        } catch (e) {
+          if (task.pollCount > 100) clearInterval(timer);
+        }
+      }, 2000);
+    }
+
+    function completeTask(task) {
+      activeTasks = activeTasks.filter(t => t.id !== task.id);
+      historyTasks.unshift(task);
+      if (historyTasks.length > 50) historyTasks.pop();
+      localStorage.setItem('studio_history', JSON.stringify(historyTasks));
+      renderGallery();
+      const strings = I18N[currentLang];
+      showToast(task.type === 'image' ? strings.gen_done_image : strings.gen_done);
+    }
+
+    function renderGallery() {
+      const container = document.getElementById('gallery');
+      const empty = document.getElementById('empty-state');
+      const items = currentTab === 'active' ? activeTasks : historyTasks;
+      
+      container.innerHTML = '';
+      if (items.length === 0) {
+        empty.style.display = 'flex';
+        return;
+      }
+      empty.style.display = 'none';
+
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.id = `card-${item.id}`;
+        const isImage = item.type === 'image';
+
+        let media = '';
+        if (item.status === 'completed') {
+          if (isImage) {
+            media = `<img src="${item.url}" style="width:100%;height:100%;object-fit:contain" alt="Generated Image">`;
+          } else {
+            media = `<video src="${item.url}" controls loop playsinline></video>`;
+          }
+        } else {
+          media = `
+            <div class="loading-overlay">
+              <div class="spinner"></div>
+              <div style="font-size:0.875rem">${item.status === 'pending' ? I18N[currentLang].initializing : I18N[currentLang].rendering}</div>
+              <div class="progress-container"><div class="progress-bar" style="width:${item.progress}%"></div></div>
+              <div style="font-size:0.75rem;opacity:0.7">${I18N[currentLang].sync_count} ${item.pollCount}</div>
+            </div>
+          `;
+          if (item.image) media = `<img src="${item.image}" style="opacity:0.3">` + media;
+        }
+
+        let actions = '';
+        if (item.status === 'completed') {
+          if (isImage) {
+            actions = `
+              <div class="card-actions">
+                <button class="btn-action" onclick="downloadImage('${item.url}')"><i class="fas fa-download"></i> ${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
+              </div>
+            `;
+          } else {
+            actions = `
+              <div class="card-actions">
+                <button class="btn-action" onclick="extendVideo('${item.url}')"><i class="fas fa-forward"></i> ${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="downloadVideo('${item.url}')"><i class="fas fa-download"></i> ${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
+              </div>
+            `;
+          }
+        }
+
+        // 計算耗時文字
+        let durationText = '';
+        if (item.elapsed_ms) {
+          const s = (item.elapsed_ms / 1000).toFixed(1);
+          durationText = `<span><i class="fas fa-stopwatch"></i> ${I18N[currentLang].gen_duration.replace('{s}', s)}</span>`;
+        }
+
+        // 類型標籤
+        const typeLabel = isImage ? `<span><i class="fas fa-image"></i> Image</span>` : `<span><i class="fas fa-video"></i> Video</span>`;
+        
+        // 顯示尺寸/比例
+        const sizeInfo = isImage ? (item.imageSize || '1024x1024') : item.ratio;
+        const durationInfo = isImage ? '' : `<span><i class="fas fa-clock"></i> ${item.duration}s</span>`;
+
+        card.innerHTML = `
+          <div class="card-media">${media}</div>
+          <div class="card-body">
+            <div class="card-prompt">${item.prompt}</div>
+            <div class="card-footer">
+              <div class="card-meta">
+                <span><i class="far fa-calendar"></i> ${item.date} (${I18N[currentLang].timezone_label})</span>
+                ${typeLabel}
+                <span><i class="fas fa-expand"></i> ${sizeInfo}</span>
+                ${durationInfo}
+                ${durationText}
+              </div>
+              ${actions}
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function updateTaskCard(task) {
+      const card = document.getElementById(`card-${task.id}`);
+      if (!card) return;
+      const bar = card.querySelector('.progress-bar');
+      const count = card.querySelector('.loading-overlay div:last-child');
+      if (bar) bar.style.width = task.progress + '%';
+      if (count) count.textContent = `${I18N[currentLang].sync_count} ${task.pollCount}`;
+    }
+
+    function deleteTask(id) {
+      if (!confirm(I18N[currentLang].confirm_delete)) return;
+      historyTasks = historyTasks.filter(t => t.id !== id);
+      localStorage.setItem('studio_history', JSON.stringify(historyTasks));
+      renderGallery();
+    }
+
+    function downloadVideo(url) {
+      const proxyUrl = ORIGIN + '/v1/proxy/download?url=' + encodeURIComponent(url);
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = 'video.mp4';
+      a.click();
+    }
+
+    function downloadImage(url) {
+      const proxyUrl = ORIGIN + '/v1/proxy/download?url=' + encodeURIComponent(url);
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = 'image.png';
+      a.click();
+    }
+
+    // --- Utils ---
+    function updateCharCount() {
+      const len = document.getElementById('prompt').value.length;
+      const el = document.getElementById('char-count');
+      const wrap = document.getElementById('char-counter');
+      el.textContent = len;
+      wrap.className = 'char-count-wrap' + (len > 1600 ? ' warning' : '') + (len >= 1800 ? ' error' : '');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text).then(() => showToast(I18N[currentLang].copy_success));
+    }
+    function copyApiOrigin() { copyToClipboard(document.getElementById('api-origin').textContent); }
+    function copyApiKey() { copyToClipboard(document.getElementById('api-key').textContent); }
+
+    // 直接調用 init，不依賴 window.onload
+    init();
+  </script>
+</body>
+</html>
