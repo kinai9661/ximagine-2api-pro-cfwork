@@ -4,7 +4,7 @@
 
 ![Cyberpunk Banner](https://img.shields.io/badge/STYLE-CYBERPUNK-00f5ff?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMGY1ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1ib2x0Ij48cGF0aCBkPSJNMTQuNzY4IDEwLjIzMkEyIDIgMCAxIDEgMTYgMTVIMWwxLjM3Ny0zLjY4NkEyIDIgMCAwIDEgNC4yOTIgOWgxMC41Ii8+PHBhdGggZD0ibTMgMjIgMi0xMiAxIDMiLz48L3N2Zz4=)
 ![Cloudflare Workers](https://img.shields.io/badge/DEPLOY-CLOUDFLARE_WORKERS-f38020?style=for-the-badge&logo=cloudflare)
-![Version](https://img.shields.io/badge/VERSION-2.2.2_IMAGE_GENERATION-ff00ff?style=for-the-badge)
+![Version](https://img.shields.io/badge/VERSION-2.2.0_CHIMERA_SYNTHESIS-ff00ff?style=for-the-badge)
 ![License](https://img.shields.io/badge/LICENSE-APACHE_2.0-777?style=for-the-badge&logo=apache)
 ![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-00ff00?style=for-the-badge&logo=check-circle)
 
@@ -49,20 +49,9 @@
 | 功能模块 | 支持模型 | 特性亮点 | 状态 |
 |---------|---------|---------|------|
 | **文生视频** | grok-video-normal<br>grok-video-fun<br>grok-video-spicy | 三种创作风格，智能比例适配 | ✅ 稳定 |
-| **图生视频** | grok-video-image | 上传图片生成动态视频，智能去水印 | ��� 稳定 |
-| **图像生成** | grok-image | 高质量图像生成，支持多种尺寸 | ✅ 稳定 |
+| **图生视频** | grok-video-image | 上传图片生成动态视频，智能去水印 | ✅ 稳定 |
+| **图像生成** | grok-image | 高质量图像生成 | ✅ 稳定 |
 | **混合模式** | 多模型融合 | 文+图混合提示，创意无限 | ✅ 稳定 |
-
-### 🖼️ 图像生成参数
-| 参数 | 可选值 | 说明 |
-|------|--------|------|
-| **Size** | 1024x1024 | 正方形（默认） |
-| | 1792x1024 | 横向 |
-| | 1024x1792 | 纵向 |
-| **Quality** | standard | 标准质量 |
-| | hd | 高清质量 |
-| **Style** | vivid | 鲜艳风格（默认） |
-| | natural | 自然风格 |
 
 ### ⚡ 技术特性
 - ✅ **边缘计算**: Cloudflare全球网络，毫秒级响应
@@ -211,10 +200,7 @@ function generateIdentity() {
 5. **开始生成**: 点击生成按钮，等待15-30秒
 
 ### 🔌 API接口调用
-
-#### OpenAI 兼容接口（完整标准支持）
-
-**流式请求 (stream: true)**
+#### OpenAI兼容接口
 ```bash
 curl -X POST "https://your-worker.workers.dev/v1/chat/completions" \
   -H "Authorization: Bearer your-api-key" \
@@ -223,73 +209,9 @@ curl -X POST "https://your-worker.workers.dev/v1/chat/completions" \
     "model": "grok-video-normal",
     "messages": [{
       "role": "user",
-      "content": "{\"prompt\": \"赛博朋克城市雨夜\", \"aspectRatio\": \"1:1\"}"
+      "content": "{\"prompt\": \"赛博朋克城市雨夜\", \"aspectRatio\": \"16:9\"}"
     }],
     "stream": true
-  }'
-```
-
-**非流式请求 (stream: false)**
-```bash
-curl -X POST "https://your-worker.workers.dev/v1/chat/completions" \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "grok-video-normal",
-    "messages": [{
-      "role": "user",
-      "content": "{\"prompt\": \"赛博朋克城市雨夜\", \"aspectRatio\": \"1:1\"}"
-    }],
-    "stream": false
-  }'
-```
-
-**响应格式**
-
-流式响应 (SSE):
-```
-data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","created":1234567890,"model":"grok-video-normal","choices":[{"index":0,"delta":{"content":"視頻渲染中: 50%\n"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","created":1234567890,"model":"grok-video-normal","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop"}]}
-
-data: [DONE]
-```
-
-非流式响应 (JSON):
-```json
-{
-  "id": "chatcmpl-xxx",
-  "object": "chat.completion",
-  "created": 1234567890,
-  "model": "grok-video-normal",
-  "choices": [{
-    "index": 0,
-    "message": {
-      "role": "assistant",
-      "content": "Video generated successfully.\n\nVideo URL: https://..."
-    },
-    "finish_reason": "stop"
-  }],
-  "usage": {
-    "prompt_tokens": 0,
-    "completion_tokens": 0,
-    "total_tokens": 0
-  },
-  "video_url": "https://..."
-}
-```
-
-#### xAI 兼容接口
-```bash
-# 视频生成（异步）
-curl -X POST "https://your-worker.workers.dev/v1/videos/generations" \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "grok-video-normal",
-    "prompt": "赛博朋克城市雨夜",
-    "aspect_ratio": "1:1",
-    "duration": 6
   }'
 ```
 
@@ -303,45 +225,6 @@ GET /v1/query/status?taskId=xxx&uniqueId=xxx&type=video
 ```bash
 # 获取支持的模型
 GET /v1/models
-```
-
-#### 支持的模型列表
-| 模型名称 | 类型 | 说明 |
-|----------|------|------|
-| `grok-video-normal` | 视频 | 写实风格 |
-| `grok-video-fun` | 视频 | 趣味卡通风格 |
-| `grok-video-spicy` | 视频 | 动态模式 |
-| `grok-video-image` | 视频 | 图生视频 |
-| `grok-image` | 图像 | 图像生成 |
-
-#### 图像生成接口
-```bash
-# 图像生成（OpenAI 兼容格式）
-curl -X POST "https://your-worker.workers.dev/v1/images/generations" \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "grok-image",
-    "prompt": "a beautiful sunset over mountains",
-    "n": 1,
-    "size": "1024x1024",
-    "quality": "standard",
-    "style": "vivid"
-  }'
-```
-
-**图像生成响应格式**：
-```json
-{
-  "created": 1234567890,
-  "data": [{
-    "url": "https://...",
-    "revised_prompt": "...",
-    "status": "pending",
-    "task_id": "xxx",
-    "unique_id": "xxx"
-  }]
-}
 ```
 
 ### 🖼️ 高级功能：图生视频
@@ -523,19 +406,9 @@ curl -X GET "https://your-worker.workers.dev/v1/models"
 [![Issues](https://img.shields.io/github/issues/lza6/ximagine-2api-pro-cfwork?style=for-the-badge&logo=git)](https://github.com/lza6/ximagine-2api-pro-cfwork/issues)
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/your-invite-link)
 
-**最后更新**: 2026年3月5日 16:44:00 (UTC+8)
-**版本**: 2.2.2 Image Generation Support
+**最后更新**: 2026年1月7日 02:46:37  
+**版本**: 2.2.0 Chimera Synthesis  
 **状态**: ✅ 生产就绪
-
-### 🆕 v2.2.2 更新内容
-- ✅ 新增图像生成功能 (Web UI + API)
-- ✅ 新增 `/v1/images/generations` 接口
-- ✅ Web UI 支持视频/图像模式切换
-- ✅ 支持图像尺寸、质量、风格参数
-- ✅ 修复 OpenAI 兼容接口输出格式
-- ✅ 新增非流式响应支持 (`stream: false`)
-- ✅ 添加标准 `finish_reason: "stop"` 字段
-- ✅ 添加 `usage` 统计字段
 
 > "我们不是在编写代码，我们是在塑造未来。"  
 > — Project Chimera 宣言

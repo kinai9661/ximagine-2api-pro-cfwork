@@ -40,17 +40,13 @@ const CONFIG = {
 
   // 轮询配置
   POLLING_INTERVAL: 2000, // 2秒
-  POLLING_TIMEOUT: 180000, // 3分钟超时（增加超时时间）
+  POLLING_TIMEOUT: 120000, // 2分钟超时
 
   UPLOAD_URL: "https://upload.aiquickdraw.com/upload",
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
   PROJECT_VERSION: "4.5",
-  TIMEZONE: "Asia/Shanghai", // 強制採用 UTC+8
-  
-  // 重試配置
-  MAX_RETRIES: 3,
-  RETRY_DELAY: 1000
+  TIMEZONE: "Asia/Shanghai" // 強制採用 UTC+8
 };
 
 /**
@@ -96,13 +92,8 @@ export default {
       if (url.pathname === '/v1/chat/completions') return handleChatCompletions(request, apiKey);
 
       // 3.1 影片生成與延長接口 (兼容 xAI)
-      if (url.pathname === '/v1/videos/generations') {
+      if (url.pathname === '/v1/videos/generations' || url.pathname === '/v1/images/generations') {
           return handleVideoGenerations(request, apiKey);
-      }
-
-      // 3.2 圖片生成接口 (兼容 OpenAI)
-      if (url.pathname === '/v1/images/generations') {
-          return handleImageGenerations(request, apiKey);
       }
 
       // 4. 模型列表
@@ -117,23 +108,6 @@ export default {
       // 6. 代理下载 (绕过上游SSL证书问题)
       if (url.pathname === '/v1/proxy/download') return handleProxyDownload(request);
 
-      // 7. 健康檢查端點
-      if (url.pathname === '/health') {
-          return new Response(JSON.stringify({
-              status: 'ok',
-              timestamp: new Date().toISOString(),
-              version: '2.2.0',
-              project: CONFIG.PROJECT_NAME
-          }), {
-              headers: corsHeaders({ 'Content-Type': 'application/json' })
-          });
-      }
-
-      // 8. 診斷端點 - 測試上游 API 連接
-      if (url.pathname === '/v1/diagnose') {
-          return handleDiagnose(request, apiKey);
-      }
-
       return createErrorResponse(`未找到路径: ${url.pathname}`, 404, 'not_found');
   }
 };
@@ -145,26 +119,6 @@ function generateUniqueId() {
   let result = '';
   for (let i = 0; i < 32; i++) result += chars[Math.floor(Math.random() * chars.length)];
   return result;
-}
-
-/**
-* 帶重試的 fetch 函數
-*/
-async function fetchWithRetry(url, options, retries = CONFIG.MAX_RETRIES) {
-  let lastError;
-  for (let i = 0; i < retries; i++) {
-      try {
-          const response = await fetch(url, options);
-          return response;
-      } catch (error) {
-          lastError = error;
-          logEvent('fetch_retry', { attempt: i + 1, url: url.substring(0, 100), error: error.message });
-          if (i < retries - 1) {
-              await new Promise(r => setTimeout(r, CONFIG.RETRY_DELAY * (i + 1)));
-          }
-      }
-  }
-  throw lastError;
 }
 
 /**
@@ -310,43 +264,26 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       ? `${CONFIG.API_BASE}/ai/grok/create`
       : `${CONFIG.API_BASE}/ai/video/create`;
 
-  logEvent('api_request', { endpoint, model: modelKey, type: modelConfig.type, promptPreview: prompt.substring(0, 100) });
-
-  let createRes;
-  try {
-      createRes = await fetchWithRetry(endpoint, {
-          method: 'POST',
-          headers: {
-              ...headers,
-              'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-      }, CONFIG.MAX_RETRIES);
-  } catch (fetchError) {
-      logEvent('fetch_error', { endpoint, error: fetchError.message });
-      throw new Error(`網絡請求失敗 (重試 ${CONFIG.MAX_RETRIES} 次後): ${fetchError.message}`);
-  }
+  const createRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+  });
 
   if (!createRes.ok) {
       const errText = await createRes.text();
-      logEvent('upstream_error', { status: createRes.status, body: errText.substring(0, 500) });
       throw new Error(`上游拒绝 (${createRes.status}): ${errText}`);
   }
 
-  let createData;
-  try {
-      createData = await createRes.json();
-  } catch (parseError) {
-      logEvent('json_parse_error', { error: parseError.message });
-      throw new Error(`上游響應解析失敗: ${parseError.message}`);
-  }
-
+  const createData = await createRes.json();
   if (createData.code !== 200 || !createData.data) {
       // 传递原始 error code 给前端处理
       if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
           throw new Error(`HC_VERIFICATION_REQUIRED`);
       }
-      logEvent('task_create_failed', { response: createData });
       throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
   }
 
@@ -370,36 +307,17 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   let videoUrl = null;
 
   while (Date.now() - pollingStartTime < CONFIG.POLLING_TIMEOUT) {
-      let pollRes;
-      try {
-          pollRes = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${modelConfig.channel}`, {
-              method: 'GET',
-              headers: {
-                  ...headers,
-                  'Content-Type': 'application/json'
-              }
-          });
-      } catch (pollError) {
-          logEvent('poll_fetch_error', { taskId, error: pollError.message });
-          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
-          continue;
-      }
+      const pollRes = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${modelConfig.channel}`, {
+          method: 'GET',
+          headers: {
+              ...headers,
+              'Content-Type': 'application/json'
+          }
+      });
 
-      if (!pollRes.ok) {
-          logEvent('poll_response_error', { taskId, status: pollRes.status });
-          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
-          continue;
-      }
+      if (!pollRes.ok) continue;
 
-      let pollData;
-      try {
-          pollData = await pollRes.json();
-      } catch (parseError) {
-          logEvent('poll_parse_error', { taskId, error: parseError.message });
-          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
-          continue;
-      }
-      
+      const pollData = await pollRes.json();
       const data = pollData.data;
 
       if (!data) continue;
@@ -508,55 +426,10 @@ async function handleChatCompletions(request, apiKey) {
       }
   } catch (e) { }
 
-  const requestId = `chatcmpl-${crypto.randomUUID()}`;
-
-  // 檢查是否為非流式請求
-  if (body.stream === false) {
-      try {
-          const result = await performGeneration(prompt, aspectRatio, duration, resolution, modelKey, null, clientPollMode, referenceUrl);
-          
-          if (result.mode === 'async') {
-              // 異步模式返回任務 ID
-              const response = createChatCompletionResponse(
-                  requestId,
-                  modelKey,
-                  JSON.stringify({
-                      status: 'pending',
-                      task_id: result.taskId,
-                      unique_id: result.uniqueId,
-                      type: result.type,
-                      message: 'Task submitted. Use /v1/query/status to check progress.'
-                  })
-              );
-              return new Response(JSON.stringify(response), {
-                  headers: corsHeaders({ 'Content-Type': 'application/json' })
-              });
-          } else {
-              // 同步模式返回結果
-              const response = createChatCompletionResponse(
-                  requestId,
-                  modelKey,
-                  `Video generated successfully.\n\nVideo URL: ${result.videoUrl}\n\nTask completed in ${(result.elapsed_ms / 1000).toFixed(1)}s`,
-                  result.videoUrl,
-                  {
-                      prompt_tokens: 0,
-                      completion_tokens: 0,
-                      total_tokens: 0
-                  }
-              );
-              return new Response(JSON.stringify(response), {
-                  headers: corsHeaders({ 'Content-Type': 'application/json' })
-              });
-          }
-      } catch (e) {
-          return createErrorResponse(e.message, 500, 'api_error');
-      }
-  }
-
-  // 流式模式
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
+  const requestId = `chatcmpl-${crypto.randomUUID()}`;
 
   (async () => {
       const workerUrl = new URL(request.url);
@@ -564,43 +437,69 @@ async function handleChatCompletions(request, apiKey) {
 
       try {
           const result = await performGeneration(prompt, aspectRatio, duration, resolution, modelKey, async (info) => {
-              if (!clientPollMode) {
+              if (!clientPollMode && body.stream) {
                   if (info.status === 'submitting') {
-                      await sendSSE(writer, encoder, requestId, "正在初始化生成任務...\n");
+                      await sendSSE(writer, encoder, requestId, "🚀 **正在初始化生成任務...**\n", true);
                   } else if (info.status === 'processing') {
+                      const barSize = 20;
                       const progress = info.progress || 0;
-                      await sendSSE(writer, encoder, requestId, `視頻渲染中: ${progress}%\n`);
+                      const filled = Math.round((progress / 100) * barSize);
+                      const bar = '█'.repeat(filled) + '░'.repeat(barSize - filled);
+                      await sendSSE(writer, encoder, requestId, `⏳ 視頻渲染中: [${bar}] ${progress}%\n`, true);
                   }
               }
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              await sendSSE(writer, encoder, requestId, JSON.stringify({
-                  status: 'pending',
-                  task_id: result.taskId,
-                  unique_id: result.uniqueId,
-                  type: result.type,
-                  message: 'Task submitted successfully.'
-              }));
+              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
           } else {
-              await sendSSE(writer, encoder, requestId, JSON.stringify({
-                  status: 'completed',
-                  video_url: result.videoUrl,
-                  proxy_url: proxyBase + encodeURIComponent(result.videoUrl),
-                  elapsed_ms: result.elapsed_ms,
-                  model: modelKey,
-                  aspect_ratio: aspectRatio,
-                  duration: duration,
-                  resolution: resolution
-              }));
+              const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
+              const finalMarkdown = `
+# 🎬 視頻展示
+
+<div align="center">
+<video 
+  width="100%" 
+  controls
+  poster="https://via.placeholder.com/800x450/4a6fa5/ffffff?text=視頻生成完成" 
+  style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); margin: 20px 0;"
+  preload="metadata"
+  onerror="this.parentElement.innerHTML='<p style=\\'color:#e74c3c;padding:40px\\'>視頻加載失敗，請檢查鏈接有效性或網絡連接。</p>'">
+  
+  <!-- 主要視頻源 -->
+  <source src="${result.videoUrl}" type="video/mp4">
+  
+  <!-- 瀏覽器不支持時的提示 -->
+  <p>
+    您的瀏覽器不支持 HTML5 視頻。<br>
+    請 <a href="${proxyDownloadUrl}" target="_blank" download>點擊下載視頻</a> 或在現代瀏覽器中查看。
+  </p>
+</video>
+
+<p style="margin-top: 8px; color: #7f8c8d; font-size: 0.9em; font-style: italic;">
+  🎥 點擊播放按鈕觀看視頻
+</p>
+</div>
+
+## 備用下載鏈接
+如果上方視頻無法播放，請：
+1. [📥 點擊通過代理下載視頻](${proxyDownloadUrl})
+2. [🔗 點擊直接下載視頻](${result.videoUrl})
+3. 使用現代瀏覽器（Chrome/Firefox/Edge/Safari）
+
+**任務詳情:**
+- **模型:** \`${modelKey}\`
+- **比例:** \`${aspectRatio}\`
+- **時長:** \`${duration}s\`
+- **解析度:** \`${resolution}\`
+- **提示詞:** \`${prompt.replace(/\n/g, ' ')}\`
+`;
+              await sendSSE(writer, encoder, requestId, finalMarkdown);
           }
 
-          // 發送最終訊息並設置 finish_reason
-          await sendSSE(writer, encoder, requestId, "", "stop");
           await writer.write(encoder.encode('data: [DONE]\n\n'));
       } catch (e) {
-          await sendSSE(writer, encoder, requestId, JSON.stringify({ error: e.message }));
-          await sendSSE(writer, encoder, requestId, "", "stop");
+          await sendSSE(writer, encoder, requestId, `\n\n**错误**: ${e.message}`);
           await writer.write(encoder.encode('data: [DONE]\n\n'));
       } finally {
           await writer.close();
@@ -641,50 +540,6 @@ async function handleVideoGenerations(request, apiKey) {
             model: model,
             status: "pending",
             unique_id: result.uniqueId
-        }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
-
-    } catch (e) {
-        return createErrorResponse(e.message, 500, 'api_error');
-    }
-}
-
-/**
- * 兼容 OpenAI 圖片生成接口
- */
-async function handleImageGenerations(request, apiKey) {
-    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
-
-    let body;
-    try { body = await request.json(); } catch (e) { return createErrorResponse('Invalid JSON', 400, 'invalid_json'); }
-
-    const prompt = body.prompt || "";
-    const model = body.model || "grok-image";
-    const n = body.n || 1;
-    const size = body.size || "1024x1024";
-    const quality = body.quality || "standard";
-    const style = body.style || "vivid";
-    
-    // 解析尺寸
-    let aspectRatio = "1:1";
-    if (size.includes("x")) {
-        const [w, h] = size.split("x").map(Number);
-        if (w > h) aspectRatio = "16:9";
-        else if (h > w) aspectRatio = "9:16";
-    }
-
-    try {
-        // 使用 clientPollMode = true
-        const result = await performGeneration(prompt, aspectRatio, 6, "1080p", model, null, true, null);
-
-        return new Response(JSON.stringify({
-            created: Math.floor(result.created_at / 1000),
-            data: [{
-                url: result.taskId, // 暫時返回 taskId，需要輪詢獲取實際 URL
-                revised_prompt: prompt,
-                status: "pending",
-                task_id: result.taskId,
-                unique_id: result.uniqueId
-            }]
         }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 
     } catch (e) {
@@ -799,99 +654,6 @@ async function handleProxyDownload(request) {
   }
 }
 
-/**
-* 診斷端點 - 測試上游 API 連接
-*/
-async function handleDiagnose(request, apiKey) {
-  if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
-
-  const diagnostics = {
-      timestamp: new Date().toISOString(),
-      tests: []
-  };
-
-  // 測試 1: 基本連接測試
-  try {
-      const testUrl = CONFIG.API_BASE.replace('/api/v1', '');
-      const start = Date.now();
-      const res = await fetch(testUrl, { method: 'HEAD' });
-      diagnostics.tests.push({
-          name: 'API Base Connectivity',
-          url: testUrl,
-          status: res.ok ? 'PASS' : 'FAIL',
-          statusCode: res.status,
-          latency: Date.now() - start
-      });
-  } catch (e) {
-      diagnostics.tests.push({
-          name: 'API Base Connectivity',
-          status: 'FAIL',
-          error: e.message
-      });
-  }
-
-  // 測試 2: 模型端點測試
-  try {
-      const headers = getCommonHeaders();
-      const start = Date.now();
-      const res = await fetch(`${CONFIG.API_BASE}/ai/video/create`, {
-          method: 'OPTIONS',
-          headers
-      });
-      diagnostics.tests.push({
-          name: 'Video Endpoint Check',
-          url: `${CONFIG.API_BASE}/ai/video/create`,
-          status: res.ok ? 'PASS' : 'FAIL',
-          statusCode: res.status,
-          latency: Date.now() - start
-      });
-  } catch (e) {
-      diagnostics.tests.push({
-          name: 'Video Endpoint Check',
-          status: 'FAIL',
-          error: e.message
-      });
-  }
-
-  // 測試 3: 上傳端點測試
-  try {
-      const start = Date.now();
-      const res = await fetch(CONFIG.UPLOAD_URL, { method: 'HEAD' });
-      diagnostics.tests.push({
-          name: 'Upload Endpoint Check',
-          url: CONFIG.UPLOAD_URL,
-          status: res.ok ? 'PASS' : 'FAIL',
-          statusCode: res.status,
-          latency: Date.now() - start
-      });
-  } catch (e) {
-      diagnostics.tests.push({
-          name: 'Upload Endpoint Check',
-          status: 'FAIL',
-          error: e.message
-      });
-  }
-
-  // 測試 4: 配置檢查
-  diagnostics.tests.push({
-      name: 'Configuration Check',
-      status: 'INFO',
-      config: {
-          apiBase: CONFIG.API_BASE,
-          originUrl: CONFIG.ORIGIN_URL,
-          uploadUrl: CONFIG.UPLOAD_URL,
-          modelsAvailable: Object.keys(CONFIG.MODEL_MAP).length,
-          defaultModel: CONFIG.DEFAULT_MODEL,
-          pollingTimeout: CONFIG.POLLING_TIMEOUT,
-          maxRetries: CONFIG.MAX_RETRIES
-      }
-  });
-
-  return new Response(JSON.stringify(diagnostics, null, 2), {
-      headers: corsHeaders({ 'Content-Type': 'application/json' })
-  });
-}
-
 // --- 辅助函数 ---
 function verifyAuth(req, key) {
   const auth = req.headers.get('Authorization');
@@ -926,43 +688,13 @@ function handleModelsRequest() {
   }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 }
 
-async function sendSSE(writer, encoder, id, content, finishReason = null) {
-  const delta = { content: content };
+async function sendSSE(writer, encoder, id, content, isReasoning = false) {
+  const delta = isReasoning ? { reasoning_content: content } : { content: content };
   const chunk = {
-      id,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model: CONFIG.DEFAULT_MODEL,
-      choices: [{ index: 0, delta, finish_reason: finishReason }]
+      id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000),
+      model: CONFIG.DEFAULT_MODEL, choices: [{ index: 0, delta, finish_reason: null }]
   };
   await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-}
-
-/**
- * 生成標準 OpenAI 格式的��流式響應
- */
-function createChatCompletionResponse(id, model, content, videoUrl = null, usage = null) {
-  return {
-      id: id,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: model,
-      choices: [{
-          index: 0,
-          message: {
-              role: 'assistant',
-              content: content
-          },
-          finish_reason: 'stop'
-      }],
-      usage: usage || {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0
-      },
-      // 擴展欄位：影片 URL
-      video_url: videoUrl
-  };
 }
 
 async function handleUpload(request) {
@@ -1612,17 +1344,8 @@ function handleUI(request, apiKey) {
         </div>
       </div>
 
-      <!-- Mode Selection -->
-      <div class="section">
-        <div class="section-title" data-i18n="mode_selection">Generation Mode</div>
-        <div class="segmented-control" id="gen-mode-control" style="margin-bottom: 12px;">
-          <button class="segment active" data-value="video" data-i18n="mode_video">Video</button>
-          <button class="segment" data-value="image" data-i18n="mode_image">Image</button>
-        </div>
-      </div>
-
       <!-- Video Settings -->
-      <div class="section" id="video-settings">
+      <div class="section">
         <div class="section-title" data-i18n="settings">Settings</div>
         
         <div class="field">
@@ -1653,36 +1376,6 @@ function handleUI(request, apiKey) {
             <option value="fun" data-i18n="style_fun">Cartoon</option>
             <option value="spicy" data-i18n="style_spicy">Dynamic</option>
           </select>
-        </div>
-      </div>
-
-      <!-- Image Settings -->
-      <div class="section" id="image-settings" style="display: none;">
-        <div class="section-title" data-i18n="image_settings">Image Settings</div>
-        
-        <div class="field">
-          <span class="field-label" data-i18n="image_size">Size</span>
-          <select id="image-size">
-            <option value="1024x1024">1024×1024 (Square)</option>
-            <option value="1792x1024">1792×1024 (Landscape)</option>
-            <option value="1024x1792">1024×1792 (Portrait)</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <span class="field-label" data-i18n="image_quality">Quality</span>
-          <div class="segmented-control" id="quality-control">
-            <button class="segment active" data-value="standard">Standard</button>
-            <button class="segment" data-value="hd">HD</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span class="field-label" data-i18n="image_style">Style</span>
-          <div class="segmented-control" id="img-style-control">
-            <button class="segment active" data-value="vivid">Vivid</button>
-            <button class="segment" data-value="natural">Natural</button>
-          </div>
         </div>
       </div>
 
@@ -1763,18 +1456,10 @@ function handleUI(request, apiKey) {
         prompt: 'Prompt',
         prompt_placeholder: 'Describe your creative vision...',
         generate: 'Generate Video',
-        generate_image: 'Generate Image',
         tab_active: 'Active Tasks',
         tab_history: 'History',
         mode_t2v: 'Text-to-Video',
         mode_i2v: 'Image-to-Video',
-        mode_video: 'Video',
-        mode_image: 'Image',
-        mode_selection: 'Generation Mode',
-        image_settings: 'Image Settings',
-        image_size: 'Size',
-        image_quality: 'Quality',
-        image_style: 'Style',
         empty_gallery: 'Your production queue is empty',
         copy_success: 'Copied to clipboard',
         upload_success: 'Image uploaded',
@@ -1782,8 +1467,7 @@ function handleUI(request, apiKey) {
         gen_start: 'Starting generation...',
         gen_failed: 'Generation failed',
         gen_done: 'Video ready!',
-        gen_done_image: 'Image ready!',
-        confirm_delete: 'Delete this item?',
+        confirm_delete: 'Delete this video?',
         initializing: 'Initializing...',
         rendering: 'Rendering...',
         sync_count: 'Sync #',
@@ -1816,18 +1500,10 @@ function handleUI(request, apiKey) {
         prompt: '提示詞',
         prompt_placeholder: '描述您的創意願景...',
         generate: '開始生成',
-        generate_image: '生成圖片',
         tab_active: '進行中任務',
         tab_history: '歷史紀錄',
         mode_t2v: '文生影片',
         mode_i2v: '圖生影片',
-        mode_video: '影片',
-        mode_image: '圖片',
-        mode_selection: '生成模式',
-        image_settings: '圖片設置',
-        image_size: '尺寸',
-        image_quality: '品質',
-        image_style: '風格',
         empty_gallery: '目前沒有生成中的任務',
         copy_success: '已複製到剪貼板',
         upload_success: '圖片上傳成功',
@@ -1835,8 +1511,7 @@ function handleUI(request, apiKey) {
         gen_start: '開始生成...',
         gen_failed: '生成失敗',
         gen_done: '影片生成完成！',
-        gen_done_image: '圖片生成完成！',
-        confirm_delete: '確定要刪除這個項目嗎？',
+        confirm_delete: '確定要刪除這個影片嗎？',
         initializing: '初始化中...',
         rendering: '渲染中...',
         sync_count: '同步第',
@@ -1868,7 +1543,6 @@ function handleUI(request, apiKey) {
     let activeTasks = [];
     let historyTasks = JSON.parse(localStorage.getItem('studio_history') || '[]');
     let currentTab = 'active';
-    let currentGenMode = 'video'; // 'video' or 'image'
 
     const API_KEY = "${apiKey}";
     const ORIGIN = "${origin}";
@@ -1879,50 +1553,10 @@ function handleUI(request, apiKey) {
       initSegmentedControls();
       initUpload();
       initTabs();
-      initGenModeToggle();
       updateCharCount();
       renderGallery();
 
       document.getElementById('prompt').addEventListener('input', updateCharCount);
-    }
-
-    // --- Generation Mode Toggle ---
-    function initGenModeToggle() {
-      const genModeControl = document.getElementById('gen-mode-control');
-      if (genModeControl) {
-        genModeControl.addEventListener('click', (e) => {
-          if (e.target.classList.contains('segment')) {
-            genModeControl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
-            e.target.classList.add('active');
-            currentGenMode = e.target.getAttribute('data-value');
-            updateGenModeUI();
-          }
-        });
-      }
-    }
-
-    function updateGenModeUI() {
-      const videoSettings = document.getElementById('video-settings');
-      const imageSettings = document.getElementById('image-settings');
-      const genBtn = document.getElementById('btn-gen');
-      const modeDisplay = document.getElementById('mode-display');
-      const strings = I18N[currentLang];
-
-      if (currentGenMode === 'video') {
-        videoSettings.style.display = 'block';
-        imageSettings.style.display = 'none';
-        genBtn.innerHTML = '<i class="fas fa-play"></i> <span data-i18n="generate">' + strings.generate + '</span>';
-        if (uploadedImageUrl) {
-          modeDisplay.textContent = strings.mode_i2v;
-        } else {
-          modeDisplay.textContent = strings.mode_t2v;
-        }
-      } else {
-        videoSettings.style.display = 'none';
-        imageSettings.style.display = 'block';
-        genBtn.innerHTML = '<i class="fas fa-image"></i> <span data-i18n="generate_image">' + strings.generate_image + '</span>';
-        modeDisplay.textContent = strings.mode_image;
-      }
     }
 
     // --- i18n Logic ---
@@ -2035,13 +1669,6 @@ function handleUI(request, apiKey) {
     function updateModeDisplay() {
       const strings = I18N[currentLang];
       const el = document.getElementById('mode-display');
-      
-      if (currentGenMode === 'image') {
-        el.textContent = strings.mode_image;
-        el.style.color = 'var(--primary)';
-        return;
-      }
-      
       if (uploadedImageUrl) {
         if (uploadedImageUrl.includes('.mp4') || uploadedImageUrl.includes('video')) {
           el.textContent = strings.mode_v2v;
@@ -2088,20 +1715,13 @@ function handleUI(request, apiKey) {
         id: 'task_' + Date.now(),
         status: 'pending',
         prompt: prompt,
-        type: currentGenMode, // 'video' or 'image'
-        // Video settings
         ratio: getSelectedValue('ratio-control'),
         duration: getSelectedValue('duration-control'),
         resolution: getSelectedValue('res-control'),
         style: document.getElementById('video-mode').value,
-        // Image settings
-        imageSize: document.getElementById('image-size')?.value || '1024x1024',
-        imageQuality: getSelectedValue('quality-control') || 'standard',
-        imageStyle: getSelectedValue('img-style-control') || 'vivid',
-        // Common
         image: uploadedImageUrl,
-        created_at: Date.now(),
-        date: formatTimeUTC8(Date.now()),
+        created_at: Date.now(), // 精確毫秒時間戳
+        date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
         progress: 0,
         pollCount: 0
       };
@@ -2119,51 +1739,33 @@ function handleUI(request, apiKey) {
     async function processTask(task) {
       const strings = I18N[currentLang];
       try {
-        let model, payload;
-
-        if (task.type === 'image') {
-          // 圖片生成模式
-          model = 'grok-image';
-          payload = {
-            model: model,
-            messages: [{
-              role: 'user',
-              content: JSON.stringify({
-                prompt: task.prompt,
-                aspectRatio: task.imageSize.includes('1024x1024') ? '1:1' :
-                             (task.imageSize.includes('1792x1024') ? '16:9' : '9:16'),
-                clientPollMode: true
-              })
-            }],
-            stream: true
-          };
-        } else {
-          // 影片生成模式
-          model = 'grok-video-' + task.style;
-          if (task.image) {
-            if (task.image.includes('.mp4') || task.image.includes('video')) {
-              model = 'grok-video-image';
-            } else {
-              model = 'grok-video-image';
-            }
+        let model = 'grok-video-' + task.style;
+        if (task.image) {
+          // 判斷是圖片還是影片
+          if (task.image.includes('.mp4') || task.image.includes('video')) {
+            model = 'grok-video-image'; // 使用支援參考內容的模型
+          } else {
+            model = 'grok-video-image';
           }
-          payload = {
-            model: model,
-            messages: [{
-              role: 'user',
-              content: JSON.stringify({
-                prompt: task.prompt,
-                aspectRatio: task.ratio,
-                duration: task.duration,
-                resolution: task.resolution,
-                clientPollMode: true,
-                videoUrl: (task.image && (task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
-                imageUrls: (task.image && !(task.image.includes('.mp4') || task.image.includes('video'))) ? [task.image] : []
-              })
-            }],
-            stream: true
-          };
         }
+
+        const payload = {
+          model: model,
+          messages: [{
+            role: 'user',
+            content: JSON.stringify({
+              prompt: task.prompt,
+              aspectRatio: task.ratio,
+              duration: task.duration,
+              resolution: task.resolution,
+              clientPollMode: true,
+              // 若為影片則傳入 videoUrl，若為圖片則傳入 imageUrls
+              videoUrl: (task.image && (task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
+              imageUrls: (task.image && !(task.image.includes('.mp4') || task.image.includes('video'))) ? [task.image] : []
+            })
+          }],
+          stream: true
+        };
 
         const res = await fetch(ORIGIN + '/v1/chat/completions', {
           method: 'POST',
@@ -2197,7 +1799,6 @@ function handleUI(request, apiKey) {
     function startPolling(task, realId, uid) {
       const strings = I18N[currentLang];
       task.status = 'processing';
-      const taskType = task.type || 'video'; // 默認為 video
       
       const timer = setInterval(async () => {
         task.pollCount++;
@@ -2206,15 +1807,15 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 給後端用於計算精確耗時
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}&type=\${taskType}\`, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
 
-          if (data.status === 'completed' || data.videoUrl || data.urls) {
+          if (data.status === 'completed' || data.videoUrl) {
             clearInterval(timer);
             task.status = 'completed';
-            task.url = data.videoUrl || (data.urls && data.urls[0]);
+            task.url = data.videoUrl || data.urls[0];
             
             // 校準時間數據
             if (data.completed_at) task.completed_at = data.completed_at;
@@ -2242,8 +1843,7 @@ function handleUI(request, apiKey) {
       if (historyTasks.length > 50) historyTasks.pop();
       localStorage.setItem('studio_history', JSON.stringify(historyTasks));
       renderGallery();
-      const strings = I18N[currentLang];
-      showToast(task.type === 'image' ? strings.gen_done_image : strings.gen_done);
+      showToast(I18N[currentLang].gen_done);
     }
 
     function renderGallery() {
@@ -2262,15 +1862,10 @@ function handleUI(request, apiKey) {
         const card = document.createElement('div');
         card.className = 'card';
         card.id = \`card-\${item.id}\`;
-        const isImage = item.type === 'image';
 
         let media = '';
         if (item.status === 'completed') {
-          if (isImage) {
-            media = \`<img src="\${item.url}" style="width:100%;height:100%;object-fit:contain" alt="Generated Image">\`;
-          } else {
-            media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
-          }
+          media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
         } else {
           media = \`
             <div class="loading-overlay">
@@ -2283,25 +1878,13 @@ function handleUI(request, apiKey) {
           if (item.image) media = \`<img src="\${item.image}" style="opacity:0.3">\` + media;
         }
 
-        let actions = '';
-        if (item.status === 'completed') {
-          if (isImage) {
-            actions = \`
-              <div class="card-actions">
-                <button class="btn-action" onclick="downloadImage('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
-                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
-              </div>
-            \`;
-          } else {
-            actions = \`
-              <div class="card-actions">
-                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
-                <button class="btn-action" onclick="downloadVideo('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
-                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
-              </div>
-            \`;
-          }
-        }
+        const actions = item.status === 'completed' ? \`
+          <div class="card-actions">
+            <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+            <button class="btn-action" onclick="downloadVideo('\${item.url}')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
+            <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+          </div>
+        \` : '';
 
         // 計算耗時文字
         let durationText = '';
@@ -2310,13 +1893,6 @@ function handleUI(request, apiKey) {
           durationText = \`<span><i class="fas fa-stopwatch"></i> \${I18N[currentLang].gen_duration.replace('{s}', s)}</span>\`;
         }
 
-        // 類型標籤
-        const typeLabel = isImage ? \`<span><i class="fas fa-image"></i> Image</span>\` : \`<span><i class="fas fa-video"></i> Video</span>\`;
-        
-        // 顯示尺寸/比例
-        const sizeInfo = isImage ? (item.imageSize || '1024x1024') : item.ratio;
-        const durationInfo = isImage ? '' : \`<span><i class="fas fa-clock"></i> \${item.duration}s</span>\`;
-
         card.innerHTML = \`
           <div class="card-media">\${media}</div>
           <div class="card-body">
@@ -2324,9 +1900,8 @@ function handleUI(request, apiKey) {
             <div class="card-footer">
               <div class="card-meta">
                 <span><i class="far fa-calendar"></i> \${item.date} (\${I18N[currentLang].timezone_label})</span>
-                \${typeLabel}
-                <span><i class="fas fa-expand"></i> \${sizeInfo}</span>
-                \${durationInfo}
+                <span><i class="fas fa-expand"></i> \${item.ratio}</span>
+                <span><i class="fas fa-clock"></i> \${item.duration}s</span>
                 \${durationText}
               </div>
               \${actions}
@@ -2358,14 +1933,6 @@ function handleUI(request, apiKey) {
       const a = document.createElement('a');
       a.href = proxyUrl;
       a.download = 'video.mp4';
-      a.click();
-    }
-
-    function downloadImage(url) {
-      const proxyUrl = ORIGIN + '/v1/proxy/download?url=' + encodeURIComponent(url);
-      const a = document.createElement('a');
-      a.href = proxyUrl;
-      a.download = 'image.png';
       a.click();
     }
 
