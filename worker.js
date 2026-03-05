@@ -907,94 +907,38 @@ function handleUI(request, apiKey) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    /* ============================================
-       XIMAGINE STUDIO - Modern Flat Design
-       現代化扁平設計風格
-    ============================================ */
     :root {
-      /* 主色調 - 更柔和的藍色 */
-      --primary: #6366f1;
-      --primary-hover: #4f46e5;
-      --primary-light: #eef2ff;
-      --primary-dark: #4338ca;
-      
-      /* 背景色 - 更乾淨的白色系 */
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
       --bg-main: #f8fafc;
       --bg-sidebar: #ffffff;
-      --bg-card: #ffffff;
-      --bg-input: #ffffff;
-      
-      /* 文字顏色 */
       --text-main: #1e293b;
       --text-secondary: #64748b;
-      --text-muted: #94a3b8;
-      
-      /* 邊框與分隔線 */
       --border-color: #e2e8f0;
-      --border-light: #f1f5f9;
-      
-      /* 狀態顏色 */
+      --card-bg: #ffffff;
+      --input-bg: #ffffff;
+      --accent: #3b82f6;
       --success: #10b981;
-      --success-light: #d1fae5;
       --error: #ef4444;
-      --error-light: #fee2e2;
       --warning: #f59e0b;
-      --warning-light: #fef3c7;
-      
-      /* 設計系統 */
-      --radius-sm: 6px;
-      --radius: 10px;
-      --radius-lg: 14px;
-      --radius-xl: 20px;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03);
-      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
-      
-      /* 過渡動畫 */
-      --transition-fast: 0.15s ease;
-      --transition: 0.2s ease;
-      --transition-slow: 0.3s ease;
+      --radius: 8px;
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
     }
 
     [data-theme="dark"] {
-      /* 深色模式 - 更柔和的對比 */
-      --primary: #818cf8;
-      --primary-hover: #a5b4fc;
-      --primary-light: #1e1b4b;
-      --primary-dark: #6366f1;
-      
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
       --bg-main: #0f172a;
       --bg-sidebar: #1e293b;
-      --bg-card: #1e293b;
-      --bg-input: #0f172a;
-      
       --text-main: #f1f5f9;
       --text-secondary: #94a3b8;
-      --text-muted: #64748b;
-      
       --border-color: #334155;
-      --border-light: #1e293b;
-      
-      --success-light: #064e3b;
-      --error-light: #7f1d1d;
-      --warning-light: #78350f;
-      
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.2);
-      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+      --card-bg: #1e293b;
+      --input-bg: #0f172a;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
     }
 
-    /* ============================================
-       基礎樣式重置
-    ============================================ */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: var(--bg-main);
@@ -1002,118 +946,86 @@ function handleUI(request, apiKey) {
       height: 100vh;
       display: flex;
       overflow: hidden;
-      transition: background-color var(--transition-slow), color var(--transition-slow);
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
+      transition: background-color 0.3s, color 0.3s;
     }
 
-    /* ============================================
-       側邊欄 - 更現代的設計
-    ============================================ */
+    /* Sidebar */
     .sidebar {
-      width: 380px;
-      min-width: 380px;
+      width: 400px;
       background: var(--bg-sidebar);
       border-right: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
       z-index: 100;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.02);
       overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border-color) transparent;
+      scrollbar-width: none;
     }
-    .sidebar::-webkit-scrollbar { width: 4px; }
-    .sidebar::-webkit-scrollbar-track { background: transparent; }
-    .sidebar::-webkit-scrollbar-thumb {
-      background: var(--border-color);
-      border-radius: 4px;
-    }
+    .sidebar::-webkit-scrollbar { display: none; }
 
-    /* 頂部標題欄 */
     .header {
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border-light);
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: linear-gradient(180deg, var(--bg-sidebar) 0%, var(--bg-sidebar) 100%);
-      position: sticky;
-      top: 0;
-      z-index: 10;
     }
-    
     .logo {
       font-weight: 700;
-      font-size: 1.35rem;
+      font-size: 1.25rem;
       color: var(--primary);
       display: flex;
       align-items: center;
       gap: 10px;
-      letter-spacing: -0.02em;
     }
-    .logo i {
-      font-size: 1.4rem;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
+    .logo i { font-size: 1.5rem; }
 
     .header-actions {
       display: flex;
-      gap: 6px;
+      gap: 8px;
     }
-    
     .icon-btn {
-      background: var(--bg-main);
+      background: none;
       border: 1px solid var(--border-color);
       color: var(--text-secondary);
-      width: 38px;
-      height: 38px;
+      width: 36px;
+      height: 36px;
       border-radius: var(--radius);
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all var(--transition);
+      transition: 0.2s;
     }
     .icon-btn:hover {
-      background: var(--primary-light);
-      color: var(--primary);
+      background: var(--bg-main);
+      color: var(--text-main);
       border-color: var(--primary);
-      transform: translateY(-1px);
-    }
-    .icon-btn:active {
-      transform: translateY(0);
     }
 
-    /* 側邊欄內容區 */
     .sidebar-content {
       padding: 24px;
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 28px;
     }
 
-    /* 區塊樣式 */
     .section {
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
-    
     .section-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
-    
     .section-title {
-      font-size: 0.7rem;
+      font-size: 0.875rem;
       font-weight: 600;
-      color: var(--text-muted);
+      color: var(--text-secondary);
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.05em;
     }
 
     .field {
@@ -1121,231 +1033,157 @@ function handleUI(request, apiKey) {
       flex-direction: column;
       gap: 8px;
     }
-    
     .field-label {
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
       font-weight: 500;
       color: var(--text-main);
     }
 
-    /* ============================================
-       分段控制器 - 更現代的設計
-    ============================================ */
+    /* Segmented Control */
     .segmented-control {
       display: flex;
       background: var(--bg-main);
       padding: 4px;
       border-radius: var(--radius);
       gap: 4px;
-      border: 1px solid var(--border-color);
     }
-    
     .segment {
       flex: 1;
       border: none;
-      background: transparent;
+      background: none;
       color: var(--text-secondary);
-      padding: 10px 8px;
+      padding: 8px 4px;
       font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
-      border-radius: calc(var(--radius) - 3px);
-      transition: all var(--transition);
+      border-radius: calc(var(--radius) - 2px);
+      transition: 0.2s;
       white-space: nowrap;
-    }
-    .segment:hover:not(.active) {
-      color: var(--text-main);
-      background: var(--bg-sidebar);
     }
     .segment.active {
       background: var(--bg-sidebar);
       color: var(--primary);
-      box-shadow: var(--shadow-sm);
+      box-shadow: var(--shadow);
     }
 
-    /* ============================================
-       表單元素 - 更清晰的設計
-    ============================================ */
     select, textarea, input {
       width: 100%;
-      background: var(--bg-input);
+      background: var(--input-bg);
       border: 1px solid var(--border-color);
       color: var(--text-main);
-      padding: 12px 14px;
+      padding: 10px 12px;
       font-size: 0.875rem;
       border-radius: var(--radius);
       outline: none;
-      transition: all var(--transition);
-      font-family: inherit;
-    }
-    select:hover, textarea:hover, input:hover {
-      border-color: var(--text-muted);
+      transition: 0.2s;
     }
     select:focus, textarea:focus, input:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px var(--primary-light);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
 
     textarea {
       resize: vertical;
-      min-height: 100px;
-      line-height: 1.6;
-    }
-    
-    select {
-      cursor: pointer;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-      background-size: 16px;
-      padding-right: 40px;
+      min-height: 120px;
+      line-height: 1.5;
+      font-family: inherit;
     }
 
-    /* ============================================
-       主要按鈕 - 更醒目的設計
-    ============================================ */
     .btn-generate {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      background: var(--primary);
       color: white;
       border: none;
-      padding: 16px;
+      padding: 14px;
       border-radius: var(--radius);
       font-weight: 600;
-      font-size: 0.9375rem;
+      font-size: 1rem;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
-      transition: all var(--transition);
-      margin-top: 8px;
-      box-shadow: 0 2px 8px -2px var(--primary);
-      letter-spacing: 0.01em;
+      transition: 0.2s;
+      margin-top: 12px;
     }
-    .btn-generate:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 16px -4px var(--primary);
-    }
-    .btn-generate:active {
-      transform: translateY(0);
-      box-shadow: 0 2px 8px -2px var(--primary);
-    }
-    .btn-generate:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
+    .btn-generate:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    .btn-generate:active { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-    /* ============================================
-       主內容區域
-    ============================================ */
+    /* Main Area */
     .main {
       flex: 1;
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background: var(--bg-main);
     }
 
     .main-header {
-      padding: 16px 32px;
+      padding: 20px 32px;
       background: var(--bg-sidebar);
-      border-bottom: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
-    
     .main-title {
       font-weight: 600;
-      font-size: 1rem;
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .main-title::before {
-      content: '';
-      width: 8px;
-      height: 8px;
-      background: var(--primary);
-      border-radius: 50%;
+      font-size: 1.125rem;
     }
 
-    /* 標籤頁 */
     .tabs {
       display: flex;
-      gap: 4px;
-      background: var(--bg-main);
-      padding: 4px;
-      border-radius: var(--radius);
+      gap: 24px;
     }
-    
     .tab {
-      background: transparent;
+      background: none;
       border: none;
       color: var(--text-secondary);
       font-weight: 500;
-      font-size: 0.8125rem;
-      padding: 8px 16px;
+      font-size: 0.875rem;
+      padding: 4px 0;
       cursor: pointer;
-      border-radius: calc(var(--radius) - 2px);
-      transition: all var(--transition);
+      position: relative;
+      transition: 0.2s;
     }
-    .tab:hover:not(.active) {
-      color: var(--text-main);
-    }
-    .tab.active {
-      background: var(--bg-sidebar);
-      color: var(--primary);
-      box-shadow: var(--shadow-sm);
+    .tab.active { color: var(--primary); }
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -21px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--primary);
     }
 
-    /* 內容區域 */
     .content-area {
       flex: 1;
-      padding: 24px 32px;
+      padding: 32px;
       overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border-color) transparent;
-    }
-    .content-area::-webkit-scrollbar { width: 6px; }
-    .content-area::-webkit-scrollbar-track { background: transparent; }
-    .content-area::-webkit-scrollbar-thumb {
-      background: var(--border-color);
-      border-radius: 3px;
     }
 
-    /* ============================================
-       卡片畫廊 - 更現代的網格佈局
-    ============================================ */
     .gallery {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 24px;
     }
 
     .card {
-      background: var(--bg-card);
+      background: var(--card-bg);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
+      border-radius: 12px;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      transition: all var(--transition);
+      box-shadow: var(--shadow);
+      transition: transform 0.2s, box-shadow 0.2s;
     }
-    .card:hover {
-      transform: translateY(-4px);
-      box-shadow: var(--shadow-lg);
-      border-color: var(--primary);
-    }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.05); }
 
     .card-media {
       width: 100%;
       aspect-ratio: 16/9;
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      background: #000;
       position: relative;
       display: flex;
       align-items: center;
@@ -1363,53 +1201,43 @@ function handleUI(request, apiKey) {
       flex-direction: column;
       gap: 12px;
     }
-    
     .card-prompt {
-      font-size: 0.8125rem;
-      line-height: 1.6;
+      font-size: 0.875rem;
+      line-height: 1.5;
       color: var(--text-main);
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
-    
     .card-footer {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: auto;
-      padding-top: 8px;
-      border-top: 1px solid var(--border-light);
+      margin-top: 4px;
     }
-    
     .card-meta {
       display: flex;
       gap: 12px;
-      font-size: 0.6875rem;
-      color: var(--text-muted);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
     }
-    .card-meta span {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
+    .card-meta span { display: flex; align-items: center; gap: 4px; }
 
     .card-actions {
       display: flex;
-      gap: 6px;
+      gap: 8px;
     }
-    
     .btn-action {
       background: var(--bg-main);
       border: 1px solid var(--border-color);
       color: var(--text-secondary);
       padding: 6px 10px;
-      border-radius: var(--radius-sm);
-      font-size: 0.6875rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
       font-weight: 500;
       cursor: pointer;
-      transition: all var(--transition);
+      transition: 0.2s;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -1418,285 +1246,134 @@ function handleUI(request, apiKey) {
       background: var(--primary);
       color: white;
       border-color: var(--primary);
-      transform: translateY(-1px);
     }
     .btn-action.delete:hover {
       background: var(--error);
       border-color: var(--error);
     }
 
-    /* ============================================
-       載入動畫
-    ============================================ */
+    /* Loading Overlay */
     .loading-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(15, 23, 42, 0.75);
-      backdrop-filter: blur(8px);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      color: white;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px; color: white;
     }
-    
     .spinner {
-      width: 36px;
-      height: 36px;
-      border: 3px solid rgba(255, 255, 255, 0.2);
-      border-top-color: var(--primary);
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: white;
       border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      animation: spin 1s linear infinite;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .progress-container {
-      width: 160px;
+      width: 140px;
       height: 4px;
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(255,255,255,0.2);
       border-radius: 2px;
       overflow: hidden;
     }
-    
     .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 100%);
+      background: var(--primary);
       width: 0%;
-      transition: width 0.3s ease;
-      border-radius: 2px;
+      transition: width 0.3s;
     }
 
-    /* ============================================
-       上傳區域 - 更現代的設計
-    ============================================ */
+    /* Upload Area */
     .upload-area {
       border: 2px dashed var(--border-color);
       border-radius: var(--radius);
-      padding: 24px;
+      padding: 20px;
       text-align: center;
       cursor: pointer;
-      transition: all var(--transition);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      color: var(--text-secondary);
+      transition: 0.2s;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px; color: var(--text-secondary);
       position: relative;
-      background: var(--bg-main);
     }
-    .upload-area:hover {
-      border-color: var(--primary);
-      background: var(--primary-light);
-      color: var(--primary);
-    }
-    .upload-area i {
-      font-size: 1.75rem;
-      opacity: 0.6;
-    }
-    .upload-area p {
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
+    .upload-area:hover { border-color: var(--primary); background: rgba(37, 99, 235, 0.02); }
+    .upload-area i { font-size: 1.5rem; }
+    .upload-area p { font-size: 0.75rem; }
     
     .preview-box {
       position: relative;
       width: 100%;
       display: none;
     }
-    
     .preview-img {
       width: 100%;
-      max-height: 160px;
+      max-height: 180px;
       object-fit: cover;
       border-radius: var(--radius);
       border: 1px solid var(--border-color);
-      background: linear-gradient(135deg, var(--primary-light) 0%, var(--bg-main) 100%);
+      background: #2563eb; /* 藍色背景作為圖片加載失敗時的底色 */
     }
-    
     .btn-remove-img {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: var(--error);
-      color: white;
-      border: none;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      box-shadow: var(--shadow-md);
-      transition: all var(--transition);
-    }
-    .btn-remove-img:hover {
-      transform: scale(1.1);
+      position: absolute; top: 6px; right: 6px;
+      background: var(--error); color: white; border: none;
+      width: 24px; height: 24px; border-radius: 50%;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
-    /* ============================================
-       Toast 通知
-    ============================================ */
+    /* Tooltip & Toast */
     .toast {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: var(--text-main);
-      color: var(--bg-sidebar);
-      padding: 14px 24px;
-      border-radius: var(--radius);
-      font-size: 0.875rem;
-      font-weight: 500;
-      box-shadow: var(--shadow-lg);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--text-main); color: var(--bg-sidebar);
+      padding: 12px 20px; border-radius: var(--radius);
+      font-size: 0.875rem; font-weight: 500;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+      transform: translateY(100px); opacity: 0;
+      transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
       z-index: 1000;
     }
-    .toast.show {
-      transform: translateY(0);
-      opacity: 1;
-    }
+    .toast.show { transform: translateY(0); opacity: 1; }
 
-    /* ============================================
-       空狀態
-    ============================================ */
+    /* Empty State */
     .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: var(--text-muted);
-      gap: 16px;
-      padding: 48px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-secondary); gap: 16px;
     }
-    .empty-state i {
-      font-size: 4rem;
-      opacity: 0.15;
-    }
-    .empty-state p {
-      font-size: 0.9375rem;
-    }
+    .empty-state i { font-size: 3rem; opacity: 0.2; }
 
-    /* ============================================
-       API 信息區塊
-    ============================================ */
+    /* API Info */
     .api-info {
       background: var(--bg-main);
-      padding: 14px;
-      border-radius: var(--radius);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      font-size: 0.75rem;
-      border: 1px solid var(--border-light);
+      padding: 16px; border-radius: var(--radius);
+      display: flex; flex-direction: column; gap: 12px; font-size: 0.75rem;
     }
-    
-    .api-item {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    
-    .api-label {
-      font-weight: 600;
-      color: var(--text-main);
-      font-size: 0.6875rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    
+    .api-item { display: flex; flex-direction: column; gap: 4px; }
+    .api-label { font-weight: 600; color: var(--text-main); }
     .api-value-box {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg-sidebar);
-      padding: 8px 12px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-color);
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-sidebar); padding: 6px 10px;
+      border-radius: 4px; border: 1px solid var(--border-color);
     }
-    
     .api-value {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.6875rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       flex: 1;
-      color: var(--text-secondary);
     }
-    
-    .btn-copy {
-      background: none;
-      border: none;
-      color: var(--primary);
-      cursor: pointer;
-      padding: 4px;
-      transition: all var(--transition);
-      border-radius: 4px;
-    }
-    .btn-copy:hover {
-      background: var(--primary-light);
-    }
+    .btn-copy { background: none; border: none; color: var(--primary); cursor: pointer; padding: 2px; }
 
-    /* ============================================
-       字數計數器
-    ============================================ */
+    /* Char Counter */
     .char-count-wrap {
-      display: flex;
-      justify-content: flex-end;
-      font-size: 0.6875rem;
-      color: var(--text-muted);
-      margin-top: 6px;
-      font-weight: 500;
+      display: flex; justify-content: flex-end; font-size: 0.75rem;
+      color: var(--text-secondary); margin-top: 4px;
     }
-    .char-count-wrap.warning {
-      color: var(--warning);
-    }
-    .char-count-wrap.error {
-      color: var(--error);
-    }
+    .char-count-wrap.warning { color: var(--warning); }
+    .char-count-wrap.error { color: var(--error); }
 
-    /* ============================================
-       響應式設計
-    ============================================ */
     @media (max-width: 900px) {
-      body {
-        flex-direction: column;
-      }
-      .sidebar {
-        width: 100%;
-        min-width: auto;
-        max-height: 45vh;
-      }
-      .header {
-        position: sticky;
-        top: 0;
-      }
-      .content-area {
-        padding: 16px;
-      }
-      .gallery {
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      }
-    }
-
-    /* ============================================
-       深色模式特殊調整
-    ============================================ */
-    [data-theme="dark"] .btn-generate {
-      box-shadow: 0 2px 12px -4px var(--primary);
-    }
-    [data-theme="dark"] .card:hover {
-      border-color: var(--primary);
-    }
-    [data-theme="dark"] .upload-area:hover {
-      background: var(--primary-light);
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; max-height: 50vh; }
     }
   </style>
 </head>
@@ -2027,24 +1704,16 @@ function handleUI(request, apiKey) {
     const ORIGIN = "${origin}";
 
     function init() {
-      try {
-        applyLanguage();
-        applyTheme();
-        initSegmentedControls();
-        initUpload();
-        initTabs();
-        initGenModeToggle();
-        updateGenModeUI();
-        updateCharCount();
-        renderGallery();
+      applyLanguage();
+      applyTheme();
+      initSegmentedControls();
+      initUpload();
+      initTabs();
+      initGenModeToggle();
+      updateCharCount();
+      renderGallery();
 
-        const promptEl = document.getElementById('prompt');
-        if (promptEl) {
-          promptEl.addEventListener('input', updateCharCount);
-        }
-      } catch (e) {
-        console.error('Init error:', e);
-      }
+      document.getElementById('prompt').addEventListener('input', updateCharCount);
     }
 
     // --- Generation Mode Toggle ---
@@ -2052,11 +1721,10 @@ function handleUI(request, apiKey) {
       const genModeControl = document.getElementById('gen-mode-control');
       if (genModeControl) {
         genModeControl.addEventListener('click', (e) => {
-          const segment = e.target.closest('.segment');
-          if (segment) {
+          if (e.target.classList.contains('segment')) {
             genModeControl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
-            segment.classList.add('active');
-            currentGenMode = segment.getAttribute('data-value');
+            e.target.classList.add('active');
+            currentGenMode = e.target.getAttribute('data-value');
             updateGenModeUI();
           }
         });
@@ -2069,9 +1737,6 @@ function handleUI(request, apiKey) {
       const genBtn = document.getElementById('btn-gen');
       const modeDisplay = document.getElementById('mode-display');
       const strings = I18N[currentLang];
-
-      // 空值檢查
-      if (!videoSettings || !imageSettings || !genBtn || !modeDisplay) return;
 
       if (currentGenMode === 'video') {
         videoSettings.style.display = 'block';
@@ -2123,39 +1788,32 @@ function handleUI(request, apiKey) {
     function applyTheme() {
       document.body.setAttribute('data-theme', currentTheme);
       const icon = document.querySelector('#theme-btn i');
-      if (icon) {
-        icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
-      }
+      icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
     }
 
     // --- Controls ---
     function initSegmentedControls() {
       document.querySelectorAll('.segmented-control').forEach(ctrl => {
         ctrl.addEventListener('click', (e) => {
-          const segment = e.target.closest('.segment');
-          if (segment) {
+          if (e.target.classList.contains('segment')) {
             ctrl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
-            segment.classList.add('active');
+            e.target.classList.add('active');
           }
         });
       });
     }
 
     function getSelectedValue(id) {
-      const active = document.querySelector('#' + id + ' .segment.active');
+      const active = document.querySelector(\`#\${id} .segment.active\`);
       return active ? active.getAttribute('data-value') : null;
     }
 
     // --- Upload Logic ---
     function initUpload() {
       const dropZone = document.getElementById('drop-zone');
-      const fileInput = document.getElementById('file-input');
+      dropZone.onclick = () => { if (!uploadedImageUrl) document.getElementById('file-input').click(); };
       
-      if (!dropZone || !fileInput) return;
-      
-      dropZone.onclick = () => { if (!uploadedImageUrl) fileInput.click(); };
-      
-      fileInput.onchange = (e) => {
+      document.getElementById('file-input').onchange = (e) => {
         if (e.target.files[0]) uploadFile(e.target.files[0]);
       };
 
@@ -2346,56 +2004,18 @@ function handleUI(request, apiKey) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let realId = null, uid = null, taskType = null;
+        let realId = null, uid = null;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          
-          // 嘗試解析 JSON 格式的 SSE 數據
-          const lines = buffer.split('\n');
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (trimmedLine.startsWith('data: ')) {
-              const jsonStr = trimmedLine.substring(6).trim();
-              if (jsonStr && jsonStr !== '[DONE]') {
-                try {
-                  const data = JSON.parse(jsonStr);
-                  // 檢查是否有 task_id（異步模式 - 直接在頂層）
-                  if (data.task_id && data.unique_id) {
-                    realId = data.task_id;
-                    uid = data.unique_id;
-                    taskType = data.type || task.type;
-                    break;
-                  }
-                  // 檢查 choices delta（流式內容）
-                  if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
-                    const content = data.choices[0].delta.content;
-                    // 嘗試從內容中解析 JSON
-                    try {
-                      const parsed = JSON.parse(content);
-                      if (parsed.task_id && parsed.unique_id) {
-                        realId = parsed.task_id;
-                        uid = parsed.unique_id;
-                        taskType = parsed.type || task.type;
-                        break;
-                      }
-                    } catch (e) {
-                      // 不是 JSON，繼續處理
-                    }
-                  }
-                } catch (e) {
-                  // JSON 解析失敗，繼續
-                }
-              }
-            }
-          }
-          if (realId) break;
+          const match = buffer.match(/\\\[TASK_ID:(.*?)\\\|UID:(.*?)\\\|TYPE:(.*?)\]/);
+          if (match) { realId = match[1]; uid = match[2]; break; }
         }
 
-        if (realId) startPolling(task, realId, uid, taskType);
-        else throw new Error('No task ID received from server');
+        if (realId) startPolling(task, realId, uid);
+        else throw new Error('No task ID');
 
       } catch (e) {
         task.status = 'failed';
@@ -2404,10 +2024,10 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function startPolling(task, realId, uid, taskType) {
+    function startPolling(task, realId, uid) {
       const strings = I18N[currentLang];
       task.status = 'processing';
-      const pollType = taskType || task.type || 'video'; // 使用傳入的類型或任務類型
+      const taskType = task.type || 'video'; // 默認為 video
       
       const timer = setInterval(async () => {
         task.pollCount++;
@@ -2416,7 +2036,7 @@ function handleUI(request, apiKey) {
 
         try {
           // 傳送 createdAt 給後端用於計算精確耗時
-          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}&type=\${pollType}\`, {
+          const res = await fetch(\`\${ORIGIN}/v1/query/status?taskId=\${realId}&uniqueId=\${uid}&createdAt=\${task.created_at}&type=\${taskType}\`, {
             headers: { 'Authorization': 'Bearer ' + API_KEY }
           });
           const data = await res.json();
@@ -2601,8 +2221,7 @@ function handleUI(request, apiKey) {
     function copyApiOrigin() { copyToClipboard(document.getElementById('api-origin').textContent); }
     function copyApiKey() { copyToClipboard(document.getElementById('api-key').textContent); }
 
-    // 直接調用 init，不依賴 window.onload
-    init();
+    window.onload = init;
   </script>
 </body>
 </html>`;
