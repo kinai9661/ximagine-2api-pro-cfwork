@@ -1704,17 +1704,24 @@ function handleUI(request, apiKey) {
     const ORIGIN = "${origin}";
 
     function init() {
-      applyLanguage();
-      applyTheme();
-      initSegmentedControls();
-      initUpload();
-      initTabs();
-      initGenModeToggle();
-      updateGenModeUI(); // 初始化生成模式 UI
-      updateCharCount();
-      renderGallery();
+      try {
+        applyLanguage();
+        applyTheme();
+        initSegmentedControls();
+        initUpload();
+        initTabs();
+        initGenModeToggle();
+        updateGenModeUI();
+        updateCharCount();
+        renderGallery();
 
-      document.getElementById('prompt').addEventListener('input', updateCharCount);
+        const promptEl = document.getElementById('prompt');
+        if (promptEl) {
+          promptEl.addEventListener('input', updateCharCount);
+        }
+      } catch (e) {
+        console.error('Init error:', e);
+      }
     }
 
     // --- Generation Mode Toggle ---
@@ -1739,6 +1746,9 @@ function handleUI(request, apiKey) {
       const genBtn = document.getElementById('btn-gen');
       const modeDisplay = document.getElementById('mode-display');
       const strings = I18N[currentLang];
+
+      // 空值檢查
+      if (!videoSettings || !imageSettings || !genBtn || !modeDisplay) return;
 
       if (currentGenMode === 'video') {
         videoSettings.style.display = 'block';
@@ -1790,7 +1800,9 @@ function handleUI(request, apiKey) {
     function applyTheme() {
       document.body.setAttribute('data-theme', currentTheme);
       const icon = document.querySelector('#theme-btn i');
-      icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+      if (icon) {
+        icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+      }
     }
 
     // --- Controls ---
@@ -1814,9 +1826,13 @@ function handleUI(request, apiKey) {
     // --- Upload Logic ---
     function initUpload() {
       const dropZone = document.getElementById('drop-zone');
-      dropZone.onclick = () => { if (!uploadedImageUrl) document.getElementById('file-input').click(); };
+      const fileInput = document.getElementById('file-input');
       
-      document.getElementById('file-input').onchange = (e) => {
+      if (!dropZone || !fileInput) return;
+      
+      dropZone.onclick = () => { if (!uploadedImageUrl) fileInput.click(); };
+      
+      fileInput.onchange = (e) => {
         if (e.target.files[0]) uploadFile(e.target.files[0]);
       };
 
@@ -2262,7 +2278,8 @@ function handleUI(request, apiKey) {
     function copyApiOrigin() { copyToClipboard(document.getElementById('api-origin').textContent); }
     function copyApiKey() { copyToClipboard(document.getElementById('api-key').textContent); }
 
-    window.onload = init;
+    // 直接調用 init，不依賴 window.onload
+    init();
   </script>
 </body>
 </html>`;
