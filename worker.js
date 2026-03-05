@@ -40,13 +40,17 @@ const CONFIG = {
 
   // 轮询配置
   POLLING_INTERVAL: 2000, // 2秒
-  POLLING_TIMEOUT: 120000, // 2分钟超时
+  POLLING_TIMEOUT: 180000, // 3分钟超时（增加超时时间）
 
   UPLOAD_URL: "https://upload.aiquickdraw.com/upload",
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
   PROJECT_VERSION: "4.5",
-  TIMEZONE: "Asia/Shanghai" // 強制採用 UTC+8
+  TIMEZONE: "Asia/Shanghai", // 強制採用 UTC+8
+  
+  // 重試配置
+  MAX_RETRIES: 3,
+  RETRY_DELAY: 1000
 };
 
 /**
@@ -113,6 +117,23 @@ export default {
       // 6. 代理下载 (绕过上游SSL证书问题)
       if (url.pathname === '/v1/proxy/download') return handleProxyDownload(request);
 
+      // 7. 健康檢查端點
+      if (url.pathname === '/health') {
+          return new Response(JSON.stringify({
+              status: 'ok',
+              timestamp: new Date().toISOString(),
+              version: '2.2.0',
+              project: CONFIG.PROJECT_NAME
+          }), {
+              headers: corsHeaders({ 'Content-Type': 'application/json' })
+          });
+      }
+
+      // 8. 診斷端點 - 測試上游 API 連接
+      if (url.pathname === '/v1/diagnose') {
+          return handleDiagnose(request, apiKey);
+      }
+
       return createErrorResponse(`未找到路径: ${url.pathname}`, 404, 'not_found');
   }
 };
@@ -124,6 +145,26 @@ function generateUniqueId() {
   let result = '';
   for (let i = 0; i < 32; i++) result += chars[Math.floor(Math.random() * chars.length)];
   return result;
+}
+
+/**
+* 帶重試的 fetch 函數
+*/
+async function fetchWithRetry(url, options, retries = CONFIG.MAX_RETRIES) {
+  let lastError;
+  for (let i = 0; i < retries; i++) {
+      try {
+          const response = await fetch(url, options);
+          return response;
+      } catch (error) {
+          lastError = error;
+          logEvent('fetch_retry', { attempt: i + 1, url: url.substring(0, 100), error: error.message });
+          if (i < retries - 1) {
+              await new Promise(r => setTimeout(r, CONFIG.RETRY_DELAY * (i + 1)));
+          }
+      }
+  }
+  throw lastError;
 }
 
 /**
@@ -269,26 +310,43 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
       ? `${CONFIG.API_BASE}/ai/grok/create`
       : `${CONFIG.API_BASE}/ai/video/create`;
 
-  const createRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-          ...headers,
-          'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-  });
+  logEvent('api_request', { endpoint, model: modelKey, type: modelConfig.type, promptPreview: prompt.substring(0, 100) });
+
+  let createRes;
+  try {
+      createRes = await fetchWithRetry(endpoint, {
+          method: 'POST',
+          headers: {
+              ...headers,
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+      }, CONFIG.MAX_RETRIES);
+  } catch (fetchError) {
+      logEvent('fetch_error', { endpoint, error: fetchError.message });
+      throw new Error(`網絡請求失敗 (重試 ${CONFIG.MAX_RETRIES} 次後): ${fetchError.message}`);
+  }
 
   if (!createRes.ok) {
       const errText = await createRes.text();
+      logEvent('upstream_error', { status: createRes.status, body: errText.substring(0, 500) });
       throw new Error(`上游拒绝 (${createRes.status}): ${errText}`);
   }
 
-  const createData = await createRes.json();
+  let createData;
+  try {
+      createData = await createRes.json();
+  } catch (parseError) {
+      logEvent('json_parse_error', { error: parseError.message });
+      throw new Error(`上游響應解析失敗: ${parseError.message}`);
+  }
+
   if (createData.code !== 200 || !createData.data) {
       // 传递原始 error code 给前端处理
       if (createData.code === 100002 || (createData.message && createData.message.includes("HC verification"))) {
           throw new Error(`HC_VERIFICATION_REQUIRED`);
       }
+      logEvent('task_create_failed', { response: createData });
       throw new Error(`任务创建失败: ${JSON.stringify(createData)}`);
   }
 
@@ -312,17 +370,36 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   let videoUrl = null;
 
   while (Date.now() - pollingStartTime < CONFIG.POLLING_TIMEOUT) {
-      const pollRes = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${modelConfig.channel}`, {
-          method: 'GET',
-          headers: {
-              ...headers,
-              'Content-Type': 'application/json'
-          }
-      });
+      let pollRes;
+      try {
+          pollRes = await fetch(`${CONFIG.API_BASE}/ai/${taskId}?channel=${modelConfig.channel}`, {
+              method: 'GET',
+              headers: {
+                  ...headers,
+                  'Content-Type': 'application/json'
+              }
+          });
+      } catch (pollError) {
+          logEvent('poll_fetch_error', { taskId, error: pollError.message });
+          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
+          continue;
+      }
 
-      if (!pollRes.ok) continue;
+      if (!pollRes.ok) {
+          logEvent('poll_response_error', { taskId, status: pollRes.status });
+          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
+          continue;
+      }
 
-      const pollData = await pollRes.json();
+      let pollData;
+      try {
+          pollData = await pollRes.json();
+      } catch (parseError) {
+          logEvent('poll_parse_error', { taskId, error: parseError.message });
+          await new Promise(r => setTimeout(r, CONFIG.POLLING_INTERVAL));
+          continue;
+      }
+      
       const data = pollData.data;
 
       if (!data) continue;
@@ -720,6 +797,99 @@ async function handleProxyDownload(request) {
   } catch (e) {
       return createErrorResponse('Proxy Download Error: ' + e.message, 500, 'proxy_error');
   }
+}
+
+/**
+* 診斷端點 - 測試上游 API 連接
+*/
+async function handleDiagnose(request, apiKey) {
+  if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
+
+  const diagnostics = {
+      timestamp: new Date().toISOString(),
+      tests: []
+  };
+
+  // 測試 1: 基本連接測試
+  try {
+      const testUrl = CONFIG.API_BASE.replace('/api/v1', '');
+      const start = Date.now();
+      const res = await fetch(testUrl, { method: 'HEAD' });
+      diagnostics.tests.push({
+          name: 'API Base Connectivity',
+          url: testUrl,
+          status: res.ok ? 'PASS' : 'FAIL',
+          statusCode: res.status,
+          latency: Date.now() - start
+      });
+  } catch (e) {
+      diagnostics.tests.push({
+          name: 'API Base Connectivity',
+          status: 'FAIL',
+          error: e.message
+      });
+  }
+
+  // 測試 2: 模型端點測試
+  try {
+      const headers = getCommonHeaders();
+      const start = Date.now();
+      const res = await fetch(`${CONFIG.API_BASE}/ai/video/create`, {
+          method: 'OPTIONS',
+          headers
+      });
+      diagnostics.tests.push({
+          name: 'Video Endpoint Check',
+          url: `${CONFIG.API_BASE}/ai/video/create`,
+          status: res.ok ? 'PASS' : 'FAIL',
+          statusCode: res.status,
+          latency: Date.now() - start
+      });
+  } catch (e) {
+      diagnostics.tests.push({
+          name: 'Video Endpoint Check',
+          status: 'FAIL',
+          error: e.message
+      });
+  }
+
+  // 測試 3: 上傳端點測試
+  try {
+      const start = Date.now();
+      const res = await fetch(CONFIG.UPLOAD_URL, { method: 'HEAD' });
+      diagnostics.tests.push({
+          name: 'Upload Endpoint Check',
+          url: CONFIG.UPLOAD_URL,
+          status: res.ok ? 'PASS' : 'FAIL',
+          statusCode: res.status,
+          latency: Date.now() - start
+      });
+  } catch (e) {
+      diagnostics.tests.push({
+          name: 'Upload Endpoint Check',
+          status: 'FAIL',
+          error: e.message
+      });
+  }
+
+  // 測試 4: 配置檢查
+  diagnostics.tests.push({
+      name: 'Configuration Check',
+      status: 'INFO',
+      config: {
+          apiBase: CONFIG.API_BASE,
+          originUrl: CONFIG.ORIGIN_URL,
+          uploadUrl: CONFIG.UPLOAD_URL,
+          modelsAvailable: Object.keys(CONFIG.MODEL_MAP).length,
+          defaultModel: CONFIG.DEFAULT_MODEL,
+          pollingTimeout: CONFIG.POLLING_TIMEOUT,
+          maxRetries: CONFIG.MAX_RETRIES
+      }
+  });
+
+  return new Response(JSON.stringify(diagnostics, null, 2), {
+      headers: corsHeaders({ 'Content-Type': 'application/json' })
+  });
 }
 
 // --- 辅助函数 ---
