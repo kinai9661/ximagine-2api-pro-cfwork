@@ -1710,6 +1710,7 @@ function handleUI(request, apiKey) {
       initUpload();
       initTabs();
       initGenModeToggle();
+      updateGenModeUI(); // 初始化生成模式 UI
       updateCharCount();
       renderGallery();
 
@@ -1721,10 +1722,11 @@ function handleUI(request, apiKey) {
       const genModeControl = document.getElementById('gen-mode-control');
       if (genModeControl) {
         genModeControl.addEventListener('click', (e) => {
-          if (e.target.classList.contains('segment')) {
+          const segment = e.target.closest('.segment');
+          if (segment) {
             genModeControl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
-            e.target.classList.add('active');
-            currentGenMode = e.target.getAttribute('data-value');
+            segment.classList.add('active');
+            currentGenMode = segment.getAttribute('data-value');
             updateGenModeUI();
           }
         });
@@ -1795,16 +1797,17 @@ function handleUI(request, apiKey) {
     function initSegmentedControls() {
       document.querySelectorAll('.segmented-control').forEach(ctrl => {
         ctrl.addEventListener('click', (e) => {
-          if (e.target.classList.contains('segment')) {
+          const segment = e.target.closest('.segment');
+          if (segment) {
             ctrl.querySelectorAll('.segment').forEach(s => s.classList.remove('active'));
-            e.target.classList.add('active');
+            segment.classList.add('active');
           }
         });
       });
     }
 
     function getSelectedValue(id) {
-      const active = document.querySelector(\`#\${id} .segment.active\`);
+      const active = document.querySelector('#' + id + ' .segment.active');
       return active ? active.getAttribute('data-value') : null;
     }
 
