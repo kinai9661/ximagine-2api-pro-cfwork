@@ -1370,6 +1370,39 @@ function handleUI(request, apiKey) {
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
+    .upload-link-box {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+    }
+    .upload-link-box.show { display: block; }
+    .upload-link-url {
+      font-size: 0.75rem;
+      color: var(--primary);
+      word-break: break-all;
+      margin-bottom: 6px;
+      padding: 4px 8px;
+      background: var(--bg-sidebar);
+      border-radius: 4px;
+    }
+    .upload-link-copy {
+      width: 100%;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .upload-link-copy:hover { opacity: 0.9; }
 
     /* Tooltip & Toast */
     .toast {
@@ -1544,6 +1577,10 @@ function handleUI(request, apiKey) {
             <img src="" class="preview-img" id="preview-img" onerror="this.style.display='none'; this.parentElement.style.background='#2563eb';">
             <button class="btn-remove-img" onclick="removeImage(event)"><i class="fas fa-times"></i></button>
           </div>
+          <div class="upload-link-box" id="upload-link-box">
+            <div class="upload-link-url" id="upload-link-url"></div>
+            <button class="upload-link-copy" onclick="copyUploadLink()"><i class="fas fa-copy"></i> <span data-i18n="copy_link">Copy Link</span></button>
+          </div>
         </div>
         <input type="file" id="file-input" style="display:none" accept="image/*">
       </div>
@@ -1623,6 +1660,8 @@ function handleUI(request, apiKey) {
         empty_gallery: 'Your production queue is empty',
         copy_success: 'Copied to clipboard',
         upload_success: 'Image uploaded',
+        copy_link: 'Copy Link',
+        link_copied: 'Link copied',
         upload_failed: 'Upload failed',
         gen_start: 'Starting generation...',
         gen_failed: 'Generation failed',
@@ -1676,6 +1715,8 @@ function handleUI(request, apiKey) {
         empty_gallery: '目前沒有生成中的任務',
         copy_success: '已複製到剪貼板',
         upload_success: '圖片上傳成功',
+        copy_link: '複製鏈接',
+        link_copied: '鏈接已複製',
         upload_failed: '上傳失敗',
         gen_start: '開始生成...',
         gen_failed: '生成失敗',
@@ -1881,6 +1922,8 @@ function handleUI(request, apiKey) {
           showToast(strings.upload_success);
           // 自動保存上傳到歷史紀錄
           saveUploadToHistory(file.name, imageUrl);
+          // 顯示鏈接框
+          showUploadLink(imageUrl);
         } else {
           console.error('Upload response missing URL:', data);
           showToast(data.error || data.message || strings.upload_failed);
@@ -1903,6 +1946,24 @@ function handleUI(request, apiKey) {
       historyTasks.unshift(historyItem);
       if (historyTasks.length > 50) historyTasks.pop();
       localStorage.setItem('studio_history', JSON.stringify(historyTasks));
+    }
+
+    function showUploadLink(url) {
+      const linkBox = document.getElementById('upload-link-box');
+      const linkUrl = document.getElementById('upload-link-url');
+      if (linkBox && linkUrl) {
+        linkUrl.textContent = url;
+        linkBox.classList.add('show');
+      }
+    }
+
+    function copyUploadLink() {
+      const linkUrl = document.getElementById('upload-link-url');
+      if (linkUrl && linkUrl.textContent) {
+        navigator.clipboard.writeText(linkUrl.textContent).then(() => {
+          showToast(I18N[currentLang].link_copied || 'Link copied');
+        });
+      }
     }
 
     function removeImage(e) {
