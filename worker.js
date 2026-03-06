@@ -2208,7 +2208,7 @@ function handleUI(request, apiKey) {
         let media = '';
         if (item.status === 'completed') {
           // 根據類型顯示不同媒體
-          if (item.type === 'image') {
+          if (item.type === 'image' || item.type === 'upload') {
             media = \`<img src="\${item.url}" style="width:100%;height:100%;object-fit:contain;" alt="Generated Image">\`;
           } else {
             media = \`<video src="\${item.url}" controls loop playsinline></video>\`;
@@ -2235,18 +2235,24 @@ function handleUI(request, apiKey) {
                 <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
               </div>
             \`;
-          } else {
-            actions = \`
+          } else if (item.type === 'upload') {
+            actions = `
               <div class="card-actions">
-                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
-                <button class="btn-action" onclick="downloadMedia('\${item.url}', 'video')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
-                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+                <button class="btn-action" onclick="extendVideo('${item.url}')"><i class="fas fa-forward"></i> ${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="copyToClipboard('${item.url}')"><i class="fas fa-copy"></i> ${I18N[currentLang].copy_link || 'Copy Link'}</button>
+                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
               </div>
-            \`;
+            `;
+          } else {
+            actions = `
+              <div class="card-actions">
+                <button class="btn-action" onclick="extendVideo('${item.url}')"><i class="fas fa-forward"></i> ${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="downloadMedia('${item.url}', 'video')"><i class="fas fa-download"></i> ${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
+              </div>
+            `;
           }
-        }
-
-        // 計算耗時文字
+        }        // 計算耗時文字
         let durationText = '';
         if (item.elapsed_ms) {
           const s = (item.elapsed_ms / 1000).toFixed(1);
@@ -2254,7 +2260,7 @@ function handleUI(request, apiKey) {
         }
 
         // 類型標籤
-        const typeLabel = item.type === 'image' ? '<span><i class="fas fa-image"></i> Image</span>' : '<span><i class="fas fa-video"></i> Video</span>';
+        const typeLabel = item.type === 'image' ? '<span><i class="fas fa-image"></i> Image</span>' : (item.type === 'upload' ? '<span><i class="fas fa-cloud-arrow-up"></i> Upload</span>' : '<span><i class="fas fa-video"></i> Video</span>');
 
         card.innerHTML = \`
           <div class="card-media">\${media}</div>
