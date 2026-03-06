@@ -1835,18 +1835,58 @@ function handleUI(request, apiKey) {
         const res = await fetch(ORIGIN + '/v1/upload', { method: 'POST', body: formData });
         const data = await res.json();
         
-        if (data.success && data.data?.url) {
-          uploadedImageUrl = data.data.url;
+        // 處理多種回應格式
+        let imageUrl = null;
+        
+        // 格式 1: { success: true, data: { url: "..." } }
+        if (data.success && data.data && data.data.url) {
+          imageUrl = data.data.url;
+        }
+        // 格式 2: { url: "..." }
+        else if (data.url) {
+          imageUrl = data.url;
+        }
+        // 格式 3: { data: { url: "..." } }
+        else if (data.data && data.data.url) {
+          imageUrl = data.data.url;
+        }
+        // 格式 4: { success: true, url: "..." }
+        else if (data.success && data.url) {
+          imageUrl = data.url;
+        }
+        
+        if (imageUrl) {
+          uploadedImageUrl = imageUrl;
           document.getElementById('preview-img').src = uploadedImageUrl;
           document.getElementById('preview-box').style.display = 'block';
           document.querySelector('#drop-zone p').style.display = 'none';
           document.querySelector('#drop-zone i').style.display = 'none';
           updateModeDisplay();
           showToast(strings.upload_success);
+          // 自動保存上傳到歷史紀錄
+          saveUploadToHistory(file.name, imageUrl);
+        } else {
+          console.error('Upload response missing URL:', data);
+          showToast(data.error || data.message || strings.upload_failed);
         }
       } catch (e) {
+        console.error('Upload error:', e);
         showToast(strings.upload_failed);
       }
+    }
+
+    function saveUploadToHistory(fileName, imageUrl) {
+      const historyItem = {
+        id: 'upload_' + Date.now(),
+        type: 'upload',
+        url: imageUrl,
+        prompt: 'Uploaded: ' + fileName,
+        date: formatTimeUTC8(Date.now()),
+        created_at: Date.now()
+      };
+      historyTasks.unshift(historyItem);
+      if (historyTasks.length > 50) historyTasks.pop();
+      localStorage.setItem('studio_history', JSON.stringify(historyTasks));
     }
 
     function removeImage(e) {
