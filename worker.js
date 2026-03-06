@@ -1904,6 +1904,7 @@ function handleUI(request, apiKey) {
       initUpload();
       initTabs();
       initGenMode();
+      updateGenModeUI(); // 初始化時設置正確的 UI 狀態
       updateCharCount();
       renderGallery();
 
