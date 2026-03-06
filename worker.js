@@ -34,7 +34,9 @@ const CONFIG = {
       // 圖生視頻
       "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖像模型
-      "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 }
+      "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 },
+      // mpp.pp 圖像模型
+      "mpp-image": { type: "image", provider: "mpp", model: "dall-e-3" }
   },
   DEFAULT_MODEL: "grok-video-normal",
 
@@ -51,7 +53,11 @@ const CONFIG = {
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
   PROJECT_VERSION: "4.5",
-  TIMEZONE: "Asia/Shanghai" // 強制採用 UTC+8
+  TIMEZONE: "Asia/Shanghai", // 強制採用 UTC+8
+
+  // mpp.pp 圖片生成 API 配置
+  MPP_API_BASE: "https://mpp.pp.ua",
+  MPP_API_KEY: "sk-uouOusVyI38S3LwEKkFdFS3wMZu0nxAH2yhz7AgL1SrqWgNp"
 };
 
 /**
@@ -203,6 +209,53 @@ function getCommonHeaders(uniqueId = null) {
 }
 
 /**
+* 從 Markdown 回應中提取圖片 URL
+* 支援格式: ![alt](url) 或 ![alt](url "title")
+*/
+function extractImageUrlFromMarkdown(text) {
+    // 匹配 ![alt](url) 格式
+    const regex = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/;
+    const match = text.match(regex);
+    return match ? match[2] : null;
+}
+
+/**
+* mpp.pp 圖片生成
+*/
+async function handleMppImageGeneration(prompt, model = "dall-e-3") {
+    const res = await fetch(`${CONFIG.MPP_API_BASE}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${CONFIG.MPP_API_KEY}`
+        },
+        body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: prompt }]
+        })
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`mpp.pp 錯誤 (${res.status}): ${errText}`);
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const imageUrl = extractImageUrlFromMarkdown(content);
+
+    if (!imageUrl) {
+        throw new Error('無法從 mpp.pp 回應中提取圖片 URL');
+    }
+
+    return {
+        url: imageUrl,
+        created: Date.now(),
+        model: model
+    };
+}
+
+/**
 * 核心：執行視頻生成與延長任務
 */
 async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false, referenceUrl = null) {
@@ -285,6 +338,23 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   }
 
   if (onProgress) await onProgress({ status: 'submitting', message: `正在提交任务 (${modelConfig.type})...` });
+
+  // mpp.pp 圖片生成 - 直接返回結果
+  if (modelConfig.type === 'image' && modelConfig.provider === 'mpp') {
+      try {
+          const result = await handleMppImageGeneration(prompt, modelConfig.model || 'dall-e-3');
+          return {
+              mode: 'sync',
+              url: result.url,
+              created: result.created,
+              type: 'image',
+              taskId: 'mpp_' + Date.now(),
+              uniqueId: uniqueId
+          };
+      } catch (e) {
+          throw new Error(`mpp.pp 圖片生成失敗: ${e.message}`);
+      }
+  }
 
   const endpoint = modelConfig.type === 'image'
       ? `${CONFIG.API_BASE}/ai/grok/create`
@@ -478,6 +548,27 @@ async function handleChatCompletions(request, apiKey) {
 
           if (result.mode === 'async') {
               await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
+          } else if (result.type === 'image') {
+              // mpp.pp 圖片同步返回
+              const finalMarkdown = `
+# 🖼️ 圖片生成完成
+
+<div align="center">
+<img src="${result.url}" alt="Generated Image" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); margin: 20px 0;">
+
+<p style="margin-top: 8px; color: #7f8c8d; font-size: 0.9em; font-style: italic;">
+  📷 圖片已生成完成
+</p>
+</div>
+
+## 下載鏈接
+- [🔗 點擊查看原圖](${result.url})
+
+**任務詳情:**
+- **模型:** \`${modelKey}\`
+- **提示詞:** \`${prompt.replace(/\n/g, ' ')}\`
+`;
+              await sendSSE(writer, encoder, requestId, finalMarkdown);
           } else {
               const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
               const finalMarkdown = `
@@ -602,6 +693,19 @@ async function handleImageGenerations(request, apiKey) {
         // 使用 clientPollMode = true 以符合非同步需求
         const result = await performGeneration(prompt, aspectRatio, 6, "1080p", model, null, true, null);
 
+        // mpp.pp 同步返回結果
+        if (result.mode === 'sync') {
+            return new Response(JSON.stringify({
+                created: Math.floor(result.created / 1000),
+                data: [{
+                    url: result.url,
+                    taskId: result.taskId,
+                    status: "completed"
+                }]
+            }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+        }
+
+        // ximagine 非同步返回
         return new Response(JSON.stringify({
             created: Math.floor(result.created_at / 1000),
             data: [{
