@@ -1688,6 +1688,14 @@ function handleUI(request, apiKey) {
             <option value="spicy" data-i18n="style_spicy">Dynamic</option>
           </select>
         </div>
+
+        <div class="field" id="image-model-field" style="display: none;">
+          <span class="field-label" data-i18n="image_model">Image Model</span>
+          <select id="image-model">
+            <option value="grok-image" data-i18n="model_grok_image">Grok Image (ximagine)</option>
+            <option value="mpp-image" data-i18n="model_mpp_image">Grok Imagine (mpp.pp)</option>
+          </select>
+        </div>
       </div>
 
       <!-- Image Reference -->
@@ -1801,7 +1809,10 @@ function handleUI(request, apiKey) {
         gen_duration: 'Duration: {s}s',
         timezone_label: 'UTC+8',
         mode_v2v: 'Video Extension',
-        image_ready: 'Image generated successfully!'
+        image_ready: 'Image generated successfully!',
+        image_model: 'Image Model',
+        model_grok_image: 'Grok Image (ximagine)',
+        model_mpp_image: 'Grok Imagine (mpp.pp)'
       },
       'zh': {
         intro_title: '項目介紹',
@@ -1854,7 +1865,10 @@ function handleUI(request, apiKey) {
         limit_reached: '字數超過限制',
         gen_duration: '耗時: {s}s',
         timezone_label: 'UTC+8',
-        mode_v2v: '影片延長'
+        mode_v2v: '影片延長',
+        image_model: '圖片模型',
+        model_grok_image: 'Grok Image (ximagine)',
+        model_mpp_image: 'Grok Imagine (mpp.pp)'
       }
     };
 
@@ -1913,6 +1927,7 @@ function handleUI(request, apiKey) {
       const strings = I18N[currentLang];
       const durationField = document.getElementById('duration-field');
       const styleField = document.getElementById('style-field');
+      const imageModelField = document.getElementById('image-model-field');
       const btnGen = document.getElementById('btn-gen');
       const modeDisplay = document.getElementById('mode-display');
       
@@ -1920,6 +1935,8 @@ function handleUI(request, apiKey) {
         // 隱藏影片專用選項
         if (durationField) durationField.style.display = 'none';
         if (styleField) styleField.style.display = 'none';
+        // 顯示圖片模型選擇器
+        if (imageModelField) imageModelField.style.display = 'block';
         // 更新按鈕文字
         btnGen.querySelector('span').textContent = strings.generate_image || 'Generate Image';
         // 更新模式顯示
@@ -1929,6 +1946,8 @@ function handleUI(request, apiKey) {
         // 顯示影片專用選項
         if (durationField) durationField.style.display = 'block';
         if (styleField) styleField.style.display = 'block';
+        // 隱藏圖片模型選擇器
+        if (imageModelField) imageModelField.style.display = 'none';
         // 更新按鈕文字
         btnGen.querySelector('span').textContent = strings.generate || 'Generate Video';
         // 更新模式顯示
@@ -2213,7 +2232,9 @@ function handleUI(request, apiKey) {
         
         // 根據生成模式選擇模型
         if (task.genMode === 'image') {
-          model = 'grok-image';
+          // 使用 WebUI 選擇的圖片模型
+          const imageModelSelect = document.getElementById('image-model');
+          model = imageModelSelect ? imageModelSelect.value : 'grok-image';
           taskType = 'image';
         } else {
           model = 'grok-video-' + task.style;
