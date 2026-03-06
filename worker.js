@@ -2251,6 +2251,54 @@ function handleUI(request, apiKey) {
         // 記錄任務類型
         task.type = taskType;
 
+        // 圖片生成：直接調用 /v1/images/generations API
+        if (task.genMode === 'image') {
+          task.status = 'processing';
+          renderGallery();
+          
+          const imageRes = await fetch(ORIGIN + '/v1/images/generations', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: model,
+              prompt: task.prompt,
+              size: task.ratio === '16:9' ? '1920x1080' : (task.ratio === '9:16' ? '1080x1920' : '1024x1024'),
+              n: 1
+            })
+          });
+          
+          const imageData = await imageRes.json();
+          
+          if (imageData.data && imageData.data[0]) {
+            const imgData = imageData.data[0];
+            
+            // 同步返回（mpp-image）
+            if (imgData.status === 'completed' && imgData.url) {
+              task.status = 'completed';
+              task.url = imgData.url;
+              completeTask(task);
+              return;
+            }
+            
+            // 異步返回（grok-image / ximagine）- 需要輪詢
+            if (imgData.status === 'pending' && imgData.taskId) {
+              startPolling(task, imgData.taskId, imgData.uniqueId, 'image');
+              return;
+            }
+            
+            // 其他情況：直接有 URL
+            if (imgData.url && !imgData.url.startsWith('pending:')) {
+              task.status = 'completed';
+              task.url = imgData.url;
+              completeTask(task);
+              return;
+            }
+          }
+          
+          throw new Error(imageData.error?.message || 'Image generation failed');
+        }
+
+        // 影片生成：使用 chat completions API
         const payload = {
           model: model,
           messages: [{
