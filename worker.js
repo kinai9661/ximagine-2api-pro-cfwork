@@ -1750,6 +1750,7 @@ function handleUI(request, apiKey) {
     let currentLang = localStorage.getItem('studio_lang') || 'en';
     let currentTheme = localStorage.getItem('studio_theme') || 'light';
     let uploadedImageUrl = null;
+    let isVideoReference = false; // 方案 C：雙重保障 - 手動設定 + 上傳自動偵測
     let activeTasks = [];
     let historyTasks = JSON.parse(localStorage.getItem('studio_history') || '[]');
     let currentTab = 'active';
@@ -1913,17 +1914,19 @@ function handleUI(request, apiKey) {
         }
         
         if (imageUrl) {
-          uploadedImageUrl = imageUrl;
-          document.getElementById('preview-img').src = uploadedImageUrl;
-          document.getElementById('preview-box').style.display = 'block';
-          document.querySelector('#drop-zone p').style.display = 'none';
-          document.querySelector('#drop-zone i').style.display = 'none';
-          updateModeDisplay();
-          showToast(strings.upload_success);
-          // 自動保存上傳到歷史紀錄
-          saveUploadToHistory(file.name, imageUrl);
-          // 顯示鏈接框
-          showUploadLink(imageUrl);
+            uploadedImageUrl = imageUrl;
+            // 方案 C：上傳時自動偵測檔案類型
+            isVideoReference = file.type.startsWith('video/');
+            document.getElementById('preview-img').src = uploadedImageUrl;
+            document.getElementById('preview-box').style.display = 'block';
+            document.querySelector('#drop-zone p').style.display = 'none';
+            document.querySelector('#drop-zone i').style.display = 'none';
+            updateModeDisplay();
+            showToast(strings.upload_success);
+            // 自動保存上傳到歷史紀錄
+            saveUploadToHistory(file.name, imageUrl, isVideoReference);
+            // 顯示鏈接框
+            showUploadLink(imageUrl);
         } else {
           console.error('Upload response missing URL:', data);
           showToast(data.error || data.message || strings.upload_failed);
@@ -1934,15 +1937,16 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function saveUploadToHistory(fileName, imageUrl) {
-      const historyItem = {
-        id: 'upload_' + Date.now(),
-        type: 'upload',
-        url: imageUrl,
-        prompt: 'Uploaded: ' + fileName,
-        date: formatTimeUTC8(Date.now()),
-        created_at: Date.now()
-      };
+    function saveUploadToHistory(fileName, imageUrl, isVideo = false) {
+        const historyItem = {
+            id: 'upload_' + Date.now(),
+            type: 'upload',
+            url: imageUrl,
+            isVideo: isVideo, // 方案 C：保存影片類型資訊
+            prompt: 'Uploaded: ' + fileName,
+            date: formatTimeUTC8(Date.now()),
+            created_at: Date.now()
+        };
       historyTasks.unshift(historyItem);
       if (historyTasks.length > 50) historyTasks.pop();
       localStorage.setItem('studio_history', JSON.stringify(historyTasks));
@@ -1967,8 +1971,9 @@ function handleUI(request, apiKey) {
     }
 
     function removeImage(e) {
-      e.stopPropagation();
-      uploadedImageUrl = null;
+        e.stopPropagation();
+        uploadedImageUrl = null;
+        isVideoReference = false; // 方案 C：清除影片參考旗標
       const previewImg = document.getElementById('preview-img');
       previewImg.style.display = 'block'; // 恢復顯示，防止之前因 onerror 被隱藏
       previewImg.src = '';
@@ -2004,10 +2009,11 @@ function handleUI(request, apiKey) {
       }
     }
 
-    function extendVideo(url) {
-      uploadedImageUrl = url;
-      // 使用穩定可靠的佔位圖服務，並標明為影片參考
-      document.getElementById('preview-img').src = 'https://placehold.co/800x450/2563eb/FFF?text=Video+Reference+Active';
+    function extendVideo(url, isVideo = true) {
+        uploadedImageUrl = url;
+        isVideoReference = isVideo; // 方案 C：標記為影片參考（可由呼叫者指定）
+        // 使用穩定可靠的佔位圖服務，並標明為影片參考
+        document.getElementById('preview-img').src = isVideo ? 'https://placehold.co/800x450/2563eb/FFF?text=Video+Reference+Active' : 'https://placehold.co/800x450/059669/FFF?text=Image+Reference+Active';
       document.getElementById('preview-box').style.display = 'block';
       document.querySelector('#drop-zone p').style.display = 'none';
       document.querySelector('#drop-zone i').style.display = 'none';
@@ -2016,10 +2022,11 @@ function handleUI(request, apiKey) {
       showToast(I18N[currentLang].mode_v2v);
     }
 
-    function selectReferenceVideo(url) {
-      // 設置此影片 URL 為參考影片，但不立即生成
-      // 讓用戶另外上傳新影片時，使用此 URL 作為 image 參數
-      uploadedImageUrl = url;
+    function selectReferenceVideo(url, isVideo = true) {
+        // 設置此影片 URL 為參考影片，但不立即生成
+        // 讓用戶另外上傳新影片時，使用此 URL 作為 image 參數
+        uploadedImageUrl = url;
+        isVideoReference = isVideo; // 方案 C：標記為影片參考（可由呼叫者指定）
       document.getElementById('preview-img').src = 'https://placehold.co/800x450/7c3aed/FFF?text=Reference+Selected';
       document.getElementById('preview-box').style.display = 'block';
       document.querySelector('#drop-zone p').style.display = 'none';
@@ -2047,19 +2054,20 @@ function handleUI(request, apiKey) {
       if (!prompt) return;
 
       const task = {
-        id: 'task_' + Date.now(),
-        status: 'pending',
-        prompt: prompt,
-        ratio: getSelectedValue('ratio-control'),
-        duration: getSelectedValue('duration-control'),
-        resolution: getSelectedValue('res-control'),
-        style: document.getElementById('video-mode').value,
-        image: uploadedImageUrl,
-        genMode: currentGenMode, // 'video' or 'image'
-        created_at: Date.now(), // 精確毫秒時間戳
-        date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
-        progress: 0,
-        pollCount: 0
+          id: 'task_' + Date.now(),
+          status: 'pending',
+          prompt: prompt,
+          ratio: getSelectedValue('ratio-control'),
+          duration: getSelectedValue('duration-control'),
+          resolution: getSelectedValue('res-control'),
+          style: document.getElementById('video-mode').value,
+          image: uploadedImageUrl,
+          isVideo: isVideoReference, // 方案 C：傳遞影片參考旗標
+          genMode: currentGenMode, // 'video' or 'image'
+          created_at: Date.now(), // 精確毫秒時間戳
+          date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
+          progress: 0,
+          pollCount: 0
       };
 
       activeTasks.unshift(task);
@@ -2107,9 +2115,9 @@ function handleUI(request, apiKey) {
               duration: task.duration,
               resolution: task.resolution,
               clientPollMode: true,
-              // 若為影片則傳入 videoUrl，若為圖片則傳入 imageUrls
-              videoUrl: (task.image && (task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
-              imageUrls: (task.image && !(task.image.includes('.mp4') || task.image.includes('video'))) ? [task.image] : []
+              // 方案 C：優先使用 isVideo 旗標判斷，其次用 URL 字串偵測（向後兼容）
+              videoUrl: (task.image && (task.isVideo === true || task.image.includes('.mp4') || task.image.includes('video'))) ? task.image : undefined,
+              imageUrls: (task.image && task.isVideo !== true && !task.image.includes('.mp4') && !task.image.includes('video')) ? [task.image] : []
             })
           }],
           stream: true
@@ -2254,14 +2262,14 @@ function handleUI(request, apiKey) {
               </div>
             \`;
           } else if (item.type === 'upload') {
-            actions = \`
-              <div class="card-actions">
-                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
-                <button class="btn-action" onclick="selectReferenceVideo('\${item.url}')"><i class="fas fa-film"></i> \${I18N[currentLang].use_as_ref || 'Use as Ref'}</button>
-                <button class="btn-action" onclick="copyToClipboard('\${item.url}')"><i class="fas fa-copy"></i> \${I18N[currentLang].copy_link || 'Copy Link'}</button>
-                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
-              </div>
-            \`;
+          actions = \`
+          <div class="card-actions">
+          <button class="btn-action" onclick="extendVideo('\${item.url}', \${item.isVideo || false})"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+          <button class="btn-action" onclick="selectReferenceVideo('\${item.url}', \${item.isVideo || false})"><i class="fas fa-film"></i> \${I18N[currentLang].use_as_ref || 'Use as Ref'}</button>
+          <button class="btn-action" onclick="copyToClipboard('\${item.url}')"><i class="fas fa-copy"></i> \${I18N[currentLang].copy_link || 'Copy Link'}</button>
+          <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+          </div>
+          \`;
           } else {
             actions = \`
               <div class="card-actions">
