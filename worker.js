@@ -2236,23 +2236,25 @@ function handleUI(request, apiKey) {
               </div>
             \`;
           } else if (item.type === 'upload') {
-            actions = `
+            actions = \`
               <div class="card-actions">
-                <button class="btn-action" onclick="extendVideo('${item.url}')"><i class="fas fa-forward"></i> ${I18N[currentLang].extend}</button>
-                <button class="btn-action" onclick="copyToClipboard('${item.url}')"><i class="fas fa-copy"></i> ${I18N[currentLang].copy_link || 'Copy Link'}</button>
-                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
+                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="copyToClipboard('\${item.url}')"><i class="fas fa-copy"></i> \${I18N[currentLang].copy_link || 'Copy Link'}</button>
+                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
               </div>
-            `;
+            \`;
           } else {
-            actions = `
+            actions = \`
               <div class="card-actions">
-                <button class="btn-action" onclick="extendVideo('${item.url}')"><i class="fas fa-forward"></i> ${I18N[currentLang].extend}</button>
-                <button class="btn-action" onclick="downloadMedia('${item.url}', 'video')"><i class="fas fa-download"></i> ${I18N[currentLang].download}</button>
-                <button class="btn-action delete" onclick="deleteTask('${item.id}')"><i class="fas fa-trash"></i></button>
+                <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="downloadMedia('\${item.url}', 'video')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
+                <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
               </div>
-            `;
+            \`;
           }
-        }        // 計算耗時文字
+        }
+
+        // 計算耗時文字
         let durationText = '';
         if (item.elapsed_ms) {
           const s = (item.elapsed_ms / 1000).toFixed(1);
