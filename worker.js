@@ -35,8 +35,8 @@ const CONFIG = {
       "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖像模型
       "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 },
-      // mpp.pp 圖像模型
-      "mpp-image": { type: "image", provider: "mpp", model: "dall-e-3" }
+      // mpp.pp 圖像模型（使用官方參數格式）
+      "mpp-image": { type: "image", provider: "mpp", model: "grok-imagine-image" }
   },
   DEFAULT_MODEL: "grok-video-normal",
 
@@ -222,7 +222,7 @@ function extractImageUrlFromMarkdown(text) {
 /**
 * mpp.pp 圖片生成
 */
-async function handleMppImageGeneration(prompt, model = "dall-e-3") {
+async function handleMppImageGeneration(prompt, model = "grok-imagine-image", aspectRatio = "1:1", resolution = "2k") {
     const res = await fetch(`${CONFIG.MPP_API_BASE}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -231,7 +231,10 @@ async function handleMppImageGeneration(prompt, model = "dall-e-3") {
         },
         body: JSON.stringify({
             model: model,
-            messages: [{ role: 'user', content: prompt }]
+            prompt: prompt,
+            aspect_ratio: aspectRatio,
+            resolution: resolution,
+            n: 1
         })
     });
 
@@ -241,6 +244,17 @@ async function handleMppImageGeneration(prompt, model = "dall-e-3") {
     }
 
     const data = await res.json();
+    
+    // 嘗試從標準 OpenAI 格式提取圖片 URL
+    if (data.data && data.data[0] && data.data[0].url) {
+        return {
+            url: data.data[0].url,
+            created: data.created || Date.now(),
+            model: model
+        };
+    }
+    
+    // 備用：從 Markdown 提取圖片 URL
     const content = data.choices?.[0]?.message?.content || '';
     const imageUrl = extractImageUrlFromMarkdown(content);
 
@@ -342,7 +356,12 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
   // mpp.pp 圖片生成 - 直接返回結果
   if (modelConfig.type === 'image' && modelConfig.provider === 'mpp') {
       try {
-          const result = await handleMppImageGeneration(prompt, modelConfig.model || 'dall-e-3');
+          const result = await handleMppImageGeneration(
+              prompt,
+              modelConfig.model || 'grok-imagine-image',
+              finalRatio,
+              finalResolution
+          );
           return {
               mode: 'sync',
               url: result.url,
