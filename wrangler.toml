@@ -4,7 +4,7 @@ compatibility_date = "2024-03-03"
 
 [vars]
 # ⚠️ 請在 Cloudflare 控制台或使用 `wrangler secret put API_MASTER_KEY` 設置此密鑰
-API_MASTER_KEY = "1"
+API_MASTER_KEY = "sk-9661"
 
 # Supabase 媒體托管配置
 # ⚠️ 建議使用 `wrangler secret put SUPABASE_API_KEY` 設置敏感密鑰
