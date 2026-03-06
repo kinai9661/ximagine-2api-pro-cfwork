@@ -816,16 +816,32 @@ async function handleUpload(request, env) {
               body: upstreamData
           });
 
-          const data = await res.json();
+                    const data = await res.json();
           
           if (!res.ok) {
               console.error('Supabase upload failed:', data);
               return await handleFallbackUpload(file);
           }
 
-          return new Response(JSON.stringify(data), {
-              headers: corsHeaders({ 'Content-Type': 'application/json' })
-          });
+          // 標準化響應格式
+          let imageUrl = null;
+          if (data.url) {
+              imageUrl = data.url;
+          } else if (data.data && data.data.url) {
+              imageUrl = data.data.url;
+          }
+
+          if (imageUrl) {
+              return new Response(JSON.stringify({
+                  success: true,
+                  data: { url: imageUrl }
+              }), {
+                  headers: corsHeaders({ 'Content-Type': 'application/json' })
+              });
+          } else {
+              console.error('Supabase response missing URL:', data);
+              return await handleFallbackUpload(file);
+          }
       }
 
       return await handleFallbackUpload(file);
