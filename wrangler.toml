@@ -6,6 +6,11 @@ compatibility_date = "2024-03-03"
 # ⚠️ 請在 Cloudflare 控制台或使用 `wrangler secret put API_MASTER_KEY` 設置此密鑰
 API_MASTER_KEY = "1"
 
+# Supabase 媒體托管配置
+# ⚠️ 建議使用 `wrangler secret put SUPABASE_API_KEY` 設置敏感密鑰
+SUPABASE_UPLOAD_URL = "https://bkdsuattzwucejyqdgsg.supabase.co/functions/v1/api/upload"
+SUPABASE_API_KEY = "mhp_2pstJnVdNlh6DvoJEQHWM9JH4EyZsWLG"
+
 # [observability]
 # enabled = true
 

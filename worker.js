@@ -1,4 +1,4 @@
-// =================================================================================
+﻿// =================================================================================
 //  项目: ximagine-2api (Cloudflare Worker 单文件版)
 //  版本: 2.2.0 (代号: Chimera Synthesis - Final Release)
 //  作者: 首席AI执行官 (Principal AI Executive Officer)
@@ -42,6 +42,11 @@ const CONFIG = {
   POLLING_INTERVAL: 2000, // 2秒
   POLLING_TIMEOUT: 120000, // 2分钟超时
 
+  // Supabase 媒體托管配置 (優先使用環境變數)
+  SUPABASE_UPLOAD_URL: "https://bkdsuattzwucejyqdgsg.supabase.co/functions/v1/api/upload",
+  SUPABASE_API_KEY: "mhp_2pstJnVdNlh6DvoJEQHWM9JH4EyZsWLG",
+
+  // 備用上傳配置 (舊方式)
   UPLOAD_URL: "https://upload.aiquickdraw.com/upload",
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
@@ -108,7 +113,20 @@ export default {
       if (url.pathname === '/v1/models') return handleModelsRequest();
 
       // 4.1 上传接口
-      if (url.pathname === '/v1/upload' && request.method === 'POST') return handleUpload(request);
+      if (url.pathname === '/v1/upload') {
+          if (request.method === 'POST') return handleUpload(request, env);
+          // GET 請求返回使用說明
+          return new Response(JSON.stringify({
+              endpoint: "/v1/upload",
+              method: "POST",
+              content_type: "multipart/form-data",
+              description: "Upload image or video file for generation",
+              usage: {
+                  curl_example: 'curl -X POST "URL/v1/upload" -H "Authorization: Bearer YOUR_KEY" -F "file=@image.png"',
+                  supported_formats: ["image/png", "image/jpeg", "image/gif", "video/mp4"]
+              }
+          }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
+      }
 
       // 5. 状态查询 (WebUI 客户端轮询专用)
       if (url.pathname === '/v1/query/status') return handleStatusQuery(request, apiKey);
@@ -767,49 +785,91 @@ async function sendSSE(writer, encoder, id, content, isReasoning = false) {
   await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
 }
 
-async function handleUpload(request) {
+async function handleUpload(request, env) {
   try {
       const formData = await request.formData();
-      const file = formData.get('file'); // File object
+      const file = formData.get('file');
 
-      if (!file) return new Response(JSON.stringify({ error: "No file provided" }), { status: 400 });
+      if (!file) {
+          return new Response(JSON.stringify({ 
+              success: false, 
+              error: "No file provided" 
+          }), { 
+              status: 400,
+              headers: corsHeaders({ 'Content-Type': 'application/json' })
+          });
+      }
 
-      // --- 动态生成加密 Auth ---
-      const fileName = file.name || "upload.png";
-      const path = "tools/file/video";
+      // 優先使用 Supabase 上傳
+      const supabaseUrl = env.SUPABASE_UPLOAD_URL || CONFIG.SUPABASE_UPLOAD_URL;
+      const supabaseKey = env.SUPABASE_API_KEY || CONFIG.SUPABASE_API_KEY;
 
-      // 构造 Payload
-      const authPayload = JSON.stringify({
-          timestamp: Date.now(),
-          path: path,
-          fileName: fileName
-      });
+      if (supabaseUrl && supabaseKey) {
+          const upstreamData = new FormData();
+          upstreamData.append('file', file);
 
-      // 加密
-      const encryptedAuth = await encryptData(authPayload);
-      const authHeader = `Encrypted ${encryptedAuth}`;
-      // -----------------------
+          const res = await fetch(supabaseUrl, {
+              method: 'POST',
+              headers: {
+                  'Authorization': 'Bearer ' + supabaseKey,
+              },
+              body: upstreamData
+          });
 
-      const upstreamData = new FormData();
-      upstreamData.append('file', file);
-      upstreamData.append('path', path);
+          const data = await res.json();
+          
+          if (!res.ok) {
+              console.error('Supabase upload failed:', data);
+              return await handleFallbackUpload(file);
+          }
 
-      const res = await fetch(CONFIG.UPLOAD_URL, {
-          method: 'POST',
-          headers: {
-              ...getCommonHeaders(),
-              'Authorization': authHeader, // 使用动态生成的Header
-          },
-          body: upstreamData
-      });
+          return new Response(JSON.stringify(data), {
+              headers: corsHeaders({ 'Content-Type': 'application/json' })
+          });
+      }
 
-      const data = await res.json();
-      return new Response(JSON.stringify(data), {
+      return await handleFallbackUpload(file);
+  } catch (e) {
+      return new Response(JSON.stringify({ 
+          success: false, 
+          error: e.message 
+      }), { 
+          status: 500, 
           headers: corsHeaders({ 'Content-Type': 'application/json' })
       });
-  } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders() });
   }
+}
+
+async function handleFallbackUpload(file) {
+  const fileName = file.name || "upload.png";
+  const path = "tools/file/video";
+
+  const authPayload = JSON.stringify({
+      timestamp: Date.now(),
+      path: path,
+      fileName: fileName
+  });
+
+  const encryptedAuth = await encryptData(authPayload);
+  const authHeader = 'Encrypted ' + encryptedAuth;
+
+  const upstreamData = new FormData();
+  upstreamData.append('file', file);
+  upstreamData.append('path', path);
+
+  const res = await fetch(CONFIG.UPLOAD_URL, {
+      method: 'POST',
+      headers: {
+          ...getCommonHeaders(),
+          'Authorization': authHeader,
+      },
+      body: upstreamData
+  });
+
+  const data = await res.json();
+  return new Response(JSON.stringify(data), {
+      headers: corsHeaders({ 'Content-Type': 'application/json' })
+  });
 }
 
 // --- 加密辅助函数 (Ported from Source) ---
@@ -2156,3 +2216,6 @@ function handleUI(request, apiKey) {
 </html>`;
   return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 }
+
+
+
