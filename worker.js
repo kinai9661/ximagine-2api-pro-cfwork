@@ -2016,6 +2016,19 @@ function handleUI(request, apiKey) {
       showToast(I18N[currentLang].mode_v2v);
     }
 
+    function selectReferenceVideo(url) {
+      // 設置此影片 URL 為參考影片，但不立即生成
+      // 讓用戶另外上傳新影片時，使用此 URL 作為 image 參數
+      uploadedImageUrl = url;
+      document.getElementById('preview-img').src = 'https://placehold.co/800x450/7c3aed/FFF?text=Reference+Selected';
+      document.getElementById('preview-box').style.display = 'block';
+      document.querySelector('#drop-zone p').style.display = 'none';
+      document.querySelector('#drop-zone i').style.display = 'none';
+      updateModeDisplay();
+      document.getElementById('prompt').focus();
+      showToast(I18N[currentLang].ref_selected || 'Reference video selected');
+    }
+
     // --- Tasks ---
     function initTabs() {
       document.querySelectorAll('.tab').forEach(tab => {
@@ -2226,7 +2239,12 @@ function handleUI(request, apiKey) {
         }
 
         // 根據類型顯示不同的操作按鈕
-        let actions = '';
+        // 不論狀態，永遠顯示刪除按鈕
+        let actions = \`
+          <div class="card-actions">
+            <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
+          </div>
+        \`;
         if (item.status === 'completed') {
           if (item.type === 'image') {
             actions = \`
@@ -2239,6 +2257,7 @@ function handleUI(request, apiKey) {
             actions = \`
               <div class="card-actions">
                 <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="selectReferenceVideo('\${item.url}')"><i class="fas fa-film"></i> \${I18N[currentLang].use_as_ref || 'Use as Ref'}</button>
                 <button class="btn-action" onclick="copyToClipboard('\${item.url}')"><i class="fas fa-copy"></i> \${I18N[currentLang].copy_link || 'Copy Link'}</button>
                 <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
               </div>
@@ -2247,6 +2266,7 @@ function handleUI(request, apiKey) {
             actions = \`
               <div class="card-actions">
                 <button class="btn-action" onclick="extendVideo('\${item.url}')"><i class="fas fa-forward"></i> \${I18N[currentLang].extend}</button>
+                <button class="btn-action" onclick="selectReferenceVideo('\${item.url}')"><i class="fas fa-film"></i> \${I18N[currentLang].use_as_ref || 'Use as Ref'}</button>
                 <button class="btn-action" onclick="downloadMedia('\${item.url}', 'video')"><i class="fas fa-download"></i> \${I18N[currentLang].download}</button>
                 <button class="btn-action delete" onclick="deleteTask('\${item.id}')"><i class="fas fa-trash"></i></button>
               </div>

@@ -25,6 +25,9 @@
 - **Advanced Anonymity**: Million-scale identity randomization system ensures privacy and bypasses regional restrictions.
 - **Precise Control**: Fine-tune your videos with custom aspect ratios, resolutions, and exact 6-second durations.
 - **Video Extension**: Seamlessly continue your stories by extending existing videos using the new "Extend" feature.
+- **Reference Video Selection**: Choose any video from history as a reference for new generations with "Use as Ref" button.
+- **Media Upload & Hosting**: Upload images/videos via Supabase integration with automatic URL generation and copy functionality.
+- **Flexible History Management**: Delete any record at any time—even during rendering or failed states.
 - **Global Performance**: Deployed on Cloudflare's edge network for millisecond response times worldwide.
 
 ---
@@ -52,6 +55,15 @@
 | **图生视频** | grok-video-image | 上传图片生成动态视频，智能去水印 | ✅ 稳定 |
 | **图像生成** | grok-image | 高质量图像生成 | ✅ 稳定 |
 | **混合模式** | 多模型融合 | 文+图混合提示，创意无限 | ✅ 稳定 |
+| **媒体上传** | Supabase集成 | 图片/视频上传托管，自动生成URL | ✅ 稳定 |
+
+### 🎯 历史记录管理
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| **删除任意记录** | 渲染中、失败、完成的记录均可删除 | ✅ 稳定 |
+| **延长视频** | 直接以历史视频为参考延长生成 | ✅ 稳定 |
+| **选择参考影片** | 将历史视频设为参考，另填Prompt生成新视频 | ✅ 稳定 |
+| **复制链接** | 一键复制上传媒体的URL | ✅ 稳定 |
 
 ### ⚡ 技术特性
 - ✅ **边缘计算**: Cloudflare全球网络，毫秒级响应
@@ -233,6 +245,32 @@ GET /v1/models
 3. 输入动作描述（可选）
 4. 生成动态视频
 
+### 🎬 高级功能：视频延长与参考
+#### 视频延长（Extend）
+1. 在历史记录中点击「延长」按钮
+2. 系统自动将该视频设为参考
+3. 输入新的Prompt描述延长内容
+4. 生成延长的视频
+
+#### 选择参考影片（Use as Ref）
+1. 在历史记录中点击「选择参考影片」按钮
+2. 该视频被设为参考（预览区显示紫色占位图）
+3. 输入新的Prompt生成全新视频
+4. 适合基于现有视频创作新内容
+
+### 📤 媒体上传功能
+1. 点击上传区域或拖拽文件
+2. 支持图片和视频文件上传
+3. 上传成功后自动显示URL链接框
+4. 点击「复制链接」一键获取URL
+5. 上传记录自动保存到历史记录
+
+### 🗑️ 历史记录管理
+- **删除功能**：任何状态的记录（渲染中、失败、完成）均可删除
+- **上传记录**：显示上传图标，支持延长、复制链接、删除
+- **视频记录**：支持延长、选择参考、下载、删除
+- **图片记录**：支持下载、删除
+
 ---
 
 ## 🛠️ 开发者指南
@@ -279,7 +317,9 @@ const CONFIG = {
 ### 🚧 短期规划（1-2个月）
 | 功能 | 状态 | 优先级 | 预期时间 |
 |------|------|--------|----------|
-| 历史记录存储 | 规划中 | ⭐⭐⭐⭐⭐ | Q1 2026 |
+| ~~历史记录存储~~ | ✅ 已完成 | ⭐⭐⭐⭐⭐ | Q1 2026 |
+| ~~媒体上传托管~~ | ✅ 已完成 | ⭐⭐⭐⭐⭐ | Q1 2026 |
+| ~~参考影片选择~~ | ✅ 已完成 | ⭐⭐⭐⭐ | Q1 2026 |
 | 批量生成 | 规划中 | ⭐⭐⭐⭐ | Q1 2026 |
 | 视频编辑功能 | 调研中 | ⭐⭐⭐ | Q2 2026 |
 | Telegram Bot | 规划中 | ⭐⭐⭐⭐ | Q2 2026 |
@@ -406,9 +446,16 @@ curl -X GET "https://your-worker.workers.dev/v1/models"
 [![Issues](https://img.shields.io/github/issues/lza6/ximagine-2api-pro-cfwork?style=for-the-badge&logo=git)](https://github.com/lza6/ximagine-2api-pro-cfwork/issues)
 [![Discord](https://img.shields.io/badge/Discord-Join-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/your-invite-link)
 
-**最后更新**: 2026年1月7日 02:46:37  
-**版本**: 2.2.0 Chimera Synthesis  
+**最后更新**: 2026年3月6日 16:59:00
+**版本**: 2.3.0 Chimera Synthesis
 **状态**: ✅ 生产就绪
+
+### 📋 版本更新日志 (v2.3.0)
+- ✅ 新增媒体上传功能（Supabase集成）
+- ✅ 新增「选择参考影片」按钮，支持基于历史视频创作新内容
+- ✅ 新增渲染中/失败记录的删除功能
+- ✅ 新增上传链接显示框和复制按钮
+- ✅ 优化历史记录管理，支持多种类型操作
 
 > "我们不是在编写代码，我们是在塑造未来。"  
 > — Project Chimera 宣言
