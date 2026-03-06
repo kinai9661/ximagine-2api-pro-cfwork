@@ -2020,6 +2020,7 @@ function handleUI(request, apiKey) {
       updateModeDisplay();
       document.getElementById('prompt').focus();
       showToast(I18N[currentLang].mode_v2v);
+      showUploadLink(url); // 顯示連結框
     }
 
     function selectReferenceVideo(url, isVideo = true) {
@@ -2034,6 +2035,7 @@ function handleUI(request, apiKey) {
       updateModeDisplay();
       document.getElementById('prompt').focus();
       showToast(I18N[currentLang].ref_selected || 'Reference video selected');
+      showUploadLink(url); // 顯示連結框
     }
 
     // --- Tasks ---
