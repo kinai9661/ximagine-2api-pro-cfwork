@@ -33,10 +33,6 @@ const CONFIG = {
       "grok-imagine-video": { type: "video", model: "grok-imagine", channel: "GROK_IMAGINE", pageId: 886 },
       // 圖生視頻
       "grok-video-image": { type: "video", mode: "normal", channel: "GROK_IMAGINE", pageId: 886 },
-      // 圖像模型
-      "grok-image": { type: "image", mode: "normal", channel: "GROK_TEXT_IMAGE", pageId: 900 },
-      // mpp.pp 圖像模型（使用官方參數格式）
-      "mpp-image": { type: "image", provider: "mpp", model: "grok-imagine-image" }
   },
   DEFAULT_MODEL: "grok-video-normal",
 
@@ -53,11 +49,7 @@ const CONFIG = {
   // 动态加密配置
   RSA_PUBLIC_KEY: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwJaZ7xi/H1H1jRg3DfYEEaqNYZZQHhzOZkdzzlkE510s/lP0vxZgHDVAI5dBevSpHtZHseWtKp93jqQwmdaaITGA+A2VpXDr2t8yJ0TZ3EjttLWWUT14Z+xAN04JUqks8/fm3Lpff9PYf8xGdh0zOO6XHu36N2zlK3KcpxoGBiYGYT0yJ4mH4gawXW18lddB+WuLFktzj9rPWaT2ofk1n+aULAr6lthpgFah47QI93bNwQ7cLuvwUUDmlfa4SUJlrdjfdWh7Vzh4amkmq+aR29FdZ0XLRo9FhMBQopGZCPFIucOjpYPIoWbSEQBR6VlM6OrZ4wHpLzAjVNnaGYdRLQIDAQAB",
   PROJECT_VERSION: "4.5",
-  TIMEZONE: "Asia/Shanghai", // 強制採用 UTC+8
-
-  // mpp.pp 圖片生成 API 配置
-  MPP_API_BASE: "https://mpp.pp.ua",
-  MPP_API_KEY: "sk-uouOusVyI38S3LwEKkFdFS3wMZu0nxAH2yhz7AgL1SrqWgNp"
+  TIMEZONE: "Asia/Shanghai" // 強制採用 UTC+8
 };
 
 /**
@@ -105,11 +97,6 @@ export default {
       // 3.1 影片生成與延長接口 (兼容 xAI)
       if (url.pathname === '/v1/videos/generations') {
           return handleVideoGenerations(request, apiKey);
-      }
-
-      // 3.2 圖片生成接口 (兼容 OpenAI)
-      if (url.pathname === '/v1/images/generations') {
-          return handleImageGenerations(request, apiKey);
       }
 
       // 4. API 根路徑信息
@@ -209,67 +196,6 @@ function getCommonHeaders(uniqueId = null) {
 }
 
 /**
-* 從 Markdown 回應中提取圖片 URL
-* 支援格式: ![alt](url) 或 ![alt](url "title")
-*/
-function extractImageUrlFromMarkdown(text) {
-    // 匹配 ![alt](url) 格式
-    const regex = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/;
-    const match = text.match(regex);
-    return match ? match[2] : null;
-}
-
-/**
-* mpp.pp 圖片生成
-*/
-async function handleMppImageGeneration(prompt, model = "grok-imagine-image", aspectRatio = "1:1", resolution = "2k") {
-    const res = await fetch(`${CONFIG.MPP_API_BASE}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${CONFIG.MPP_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: model,
-            prompt: prompt,
-            aspect_ratio: aspectRatio,
-            resolution: resolution,
-            n: 1
-        })
-    });
-
-    if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`mpp.pp 錯誤 (${res.status}): ${errText}`);
-    }
-
-    const data = await res.json();
-    
-    // 嘗試從標準 OpenAI 格式提取圖片 URL
-    if (data.data && data.data[0] && data.data[0].url) {
-        return {
-            url: data.data[0].url,
-            created: data.created || Date.now(),
-            model: model
-        };
-    }
-    
-    // 備用：從 Markdown 提取圖片 URL
-    const content = data.choices?.[0]?.message?.content || '';
-    const imageUrl = extractImageUrlFromMarkdown(content);
-
-    if (!imageUrl) {
-        throw new Error('無法從 mpp.pp 回應中提取圖片 URL');
-    }
-
-    return {
-        url: imageUrl,
-        created: Date.now(),
-        model: model
-    };
-}
-
-/**
 * 核心：執行視頻生成與延長任務
 */
 async function performGeneration(prompt, aspectRatio, duration, resolution, modelKey, onProgress, clientPollMode = false, referenceUrl = null) {
@@ -353,31 +279,7 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
 
   if (onProgress) await onProgress({ status: 'submitting', message: `正在提交任务 (${modelConfig.type})...` });
 
-  // mpp.pp 圖片生成 - 直接返回結果
-  if (modelConfig.type === 'image' && modelConfig.provider === 'mpp') {
-      try {
-          const result = await handleMppImageGeneration(
-              prompt,
-              modelConfig.model || 'grok-imagine-image',
-              finalRatio,
-              finalResolution
-          );
-          return {
-              mode: 'sync',
-              url: result.url,
-              created: result.created,
-              type: 'image',
-              taskId: 'mpp_' + Date.now(),
-              uniqueId: uniqueId
-          };
-      } catch (e) {
-          throw new Error(`mpp.pp 圖片生成失敗: ${e.message}`);
-      }
-  }
-
-  const endpoint = modelConfig.type === 'image'
-      ? `${CONFIG.API_BASE}/ai/grok/create`
-      : `${CONFIG.API_BASE}/ai/video/create`;
+  const endpoint = `${CONFIG.API_BASE}/ai/video/create`;
 
   const createRes = await fetch(endpoint, {
       method: 'POST',
@@ -566,28 +468,7 @@ async function handleChatCompletions(request, apiKey) {
           }, clientPollMode, referenceUrl);
 
           if (result.mode === 'async') {
-              await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
-          } else if (result.type === 'image') {
-              // mpp.pp 圖片同步返回
-              const finalMarkdown = `
-# 🖼️ 圖片生成完成
-
-<div align="center">
-<img src="${result.url}" alt="Generated Image" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); margin: 20px 0;">
-
-<p style="margin-top: 8px; color: #7f8c8d; font-size: 0.9em; font-style: italic;">
-  📷 圖片已生成完成
-</p>
-</div>
-
-## 下載鏈接
-- [🔗 點擊查看原圖](${result.url})
-
-**任務詳情:**
-- **模型:** \`${modelKey}\`
-- **提示詞:** \`${prompt.replace(/\n/g, ' ')}\`
-`;
-              await sendSSE(writer, encoder, requestId, finalMarkdown);
+            await sendSSE(writer, encoder, requestId, `\n\n✅ **任務已提交**\n- [TASK_ID:${result.taskId}|UID:${result.uniqueId}|TYPE:${result.type}]\n`);
           } else {
               const proxyDownloadUrl = proxyBase + encodeURIComponent(result.videoUrl);
               const finalMarkdown = `
@@ -676,63 +557,6 @@ async function handleVideoGenerations(request, apiKey) {
             model: model,
             status: "pending",
             unique_id: result.uniqueId
-        }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
-
-    } catch (e) {
-        return createErrorResponse(e.message, 500, 'api_error');
-    }
-}
-
-/**
- * 圖片生成接口 (兼容 OpenAI DALL-E 格式)
- */
-async function handleImageGenerations(request, apiKey) {
-    if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
-
-    let body;
-    try { body = await request.json(); } catch (e) { return createErrorResponse('Invalid JSON', 400, 'invalid_json'); }
-
-    const prompt = body.prompt || "";
-    const model = body.model || "grok-image";
-    const n = body.n || 1;
-    const size = body.size || "1024x1024";
-    
-    // 解析尺寸為比例
-    let aspectRatio = "1:1";
-    if (size.includes("x")) {
-        const [w, h] = size.split("x").map(Number);
-        if (w && h) {
-            const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
-            const divisor = gcd(w, h);
-            aspectRatio = `${w/divisor}:${h/divisor}`;
-        }
-    }
-
-    try {
-        // 使用 clientPollMode = true 以符合非同步需求
-        const result = await performGeneration(prompt, aspectRatio, 6, "1080p", model, null, true, null);
-
-        // mpp.pp 同步返回結果
-        if (result.mode === 'sync') {
-            return new Response(JSON.stringify({
-                created: Math.floor(result.created / 1000),
-                data: [{
-                    url: result.url,
-                    taskId: result.taskId,
-                    status: "completed"
-                }]
-            }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
-        }
-
-        // ximagine 非同步返回
-        return new Response(JSON.stringify({
-            created: Math.floor(result.created_at / 1000),
-            data: [{
-                url: `pending:${result.taskId}:${result.uniqueId}`,
-                taskId: result.taskId,
-                uniqueId: result.uniqueId,
-                status: "pending"
-            }]
         }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 
     } catch (e) {
@@ -881,7 +705,6 @@ function handleApiRoot() {
       endpoints: {
           chat: "/v1/chat/completions",
           videos: "/v1/videos/generations",
-          images: "/v1/images/generations",
           models: "/v1/models",
           upload: "/v1/upload",
           status: "/v1/query/status",
@@ -1646,15 +1469,6 @@ function handleUI(request, apiKey) {
         </div>
       </div>
 
-      <!-- Generation Mode -->
-      <div class="section">
-        <div class="section-title" data-i18n="gen_mode">Generation Mode</div>
-        <div class="segmented-control" id="mode-control" style="margin-bottom: 0;">
-          <button class="segment active" data-value="video" data-i18n="mode_video">Video</button>
-          <button class="segment" data-value="image" data-i18n="mode_image">Image</button>
-        </div>
-      </div>
-
       <!-- Video Settings -->
       <div class="section" id="video-settings">
         <div class="section-title" data-i18n="settings">Settings</div>
@@ -1689,13 +1503,6 @@ function handleUI(request, apiKey) {
           </select>
         </div>
 
-        <div class="field" id="image-model-field" style="display: none;">
-          <span class="field-label" data-i18n="image_model">Image Model</span>
-          <select id="image-model">
-            <option value="grok-image" data-i18n="model_grok_image">Grok Image (ximagine)</option>
-            <option value="mpp-image" data-i18n="model_mpp_image">Grok Imagine (mpp.pp)</option>
-          </select>
-        </div>
       </div>
 
       <!-- Image Reference -->
@@ -1779,15 +1586,10 @@ function handleUI(request, apiKey) {
         prompt: 'Prompt',
         prompt_placeholder: 'Describe your creative vision...',
         generate: 'Generate Video',
-        generate_image: 'Generate Image',
         tab_active: 'Active Tasks',
         tab_history: 'History',
         mode_t2v: 'Text-to-Video',
         mode_i2v: 'Image-to-Video',
-        mode_t2i: 'Text-to-Image',
-        gen_mode: 'Generation Mode',
-        mode_video: 'Video',
-        mode_image: 'Image',
         empty_gallery: 'Your production queue is empty',
         copy_success: 'Copied to clipboard',
         upload_success: 'Image uploaded',
@@ -1797,7 +1599,6 @@ function handleUI(request, apiKey) {
         gen_start: 'Starting generation...',
         gen_failed: 'Generation failed',
         gen_done: 'Video ready!',
-        gen_done_image: 'Image ready!',
         confirm_delete: 'Delete this item?',
         initializing: 'Initializing...',
         rendering: 'Rendering...',
@@ -1808,12 +1609,8 @@ function handleUI(request, apiKey) {
         limit_reached: 'Character limit reached',
         gen_duration: 'Duration: {s}s',
         timezone_label: 'UTC+8',
-        mode_v2v: 'Video Extension',
-        image_ready: 'Image generated successfully!',
-        image_model: 'Image Model',
-        model_grok_image: 'Grok Image (ximagine)',
-        model_mpp_image: 'Grok Imagine (mpp.pp)'
-      },
+        mode_v2v: 'Video Extension'
+    },
       'zh': {
         intro_title: '項目介紹',
         intro_content: 'Ximagine Studio 是一個專業的 AI 影片生成代理服務。它為您的創意願景與先進的影片合成模型之間提供了一個無縫橋樑，具有高性能處理和精確控制。',
@@ -1835,16 +1632,9 @@ function handleUI(request, apiKey) {
         prompt: '提示詞',
         prompt_placeholder: '描述您的創意願景...',
         generate: '開始生成',
-        generate_image: '生成圖片',
         tab_active: '進行中任務',
         tab_history: '歷史紀錄',
         mode_t2v: '文生影片',
-        mode_t2i: '文生圖片',
-        gen_mode: '生成模式',
-        mode_video: '影片',
-        mode_image: '圖片',
-        gen_done_image: '圖片生成完成！',
-        image_ready: '圖片已成功生成！',
         mode_i2v: '圖生影片',
         empty_gallery: '目前沒有生成中的任務',
         copy_success: '已複製到剪貼板',
@@ -1865,12 +1655,9 @@ function handleUI(request, apiKey) {
         limit_reached: '字數超過限制',
         gen_duration: '耗時: {s}s',
         timezone_label: 'UTC+8',
-        mode_v2v: '影片延長',
-        image_model: '圖片模型',
-        model_grok_image: 'Grok Image (ximagine)',
-        model_mpp_image: 'Grok Imagine (mpp.pp)'
-      }
-    };
+        mode_v2v: '影片延長'
+    }
+  };
 
     function formatTimeUTC8(ms) {
       if (!ms) return '--:--';
@@ -1895,67 +1682,18 @@ function handleUI(request, apiKey) {
     const API_KEY = "${apiKey}";
     const ORIGIN = "${origin}";
 
-    let currentGenMode = 'video'; // 'video' or 'image'
-
     function init() {
       applyLanguage();
       applyTheme();
       initSegmentedControls();
       initUpload();
       initTabs();
-      initGenMode();
-      updateGenModeUI(); // 初始化時設置正確的 UI 狀態
       updateCharCount();
       renderGallery();
-
+    
       document.getElementById('prompt').addEventListener('input', updateCharCount);
     }
-
-    // --- Generation Mode Logic ---
-    function initGenMode() {
-      const modeControl = document.getElementById('mode-control');
-      if (modeControl) {
-        modeControl.addEventListener('click', (e) => {
-          if (e.target.classList.contains('segment')) {
-            currentGenMode = e.target.getAttribute('data-value');
-            updateGenModeUI();
-          }
-        });
-      }
-    }
-
-    function updateGenModeUI() {
-      const strings = I18N[currentLang];
-      const durationField = document.getElementById('duration-field');
-      const styleField = document.getElementById('style-field');
-      const imageModelField = document.getElementById('image-model-field');
-      const btnGen = document.getElementById('btn-gen');
-      const modeDisplay = document.getElementById('mode-display');
-      
-      if (currentGenMode === 'image') {
-        // 隱藏影片專用選項
-        if (durationField) durationField.style.display = 'none';
-        if (styleField) styleField.style.display = 'none';
-        // 顯示圖片模型選擇器
-        if (imageModelField) imageModelField.style.display = 'block';
-        // 更新按鈕文字
-        btnGen.querySelector('span').textContent = strings.generate_image || 'Generate Image';
-        // 更新模式顯示
-        modeDisplay.textContent = strings.mode_t2i || 'Text-to-Image';
-        modeDisplay.style.color = 'var(--primary)';
-      } else {
-        // 顯示影片專用選項
-        if (durationField) durationField.style.display = 'block';
-        if (styleField) styleField.style.display = 'block';
-        // 隱藏圖片模型選擇器
-        if (imageModelField) imageModelField.style.display = 'none';
-        // 更新按鈕文字
-        btnGen.querySelector('span').textContent = strings.generate || 'Generate Video';
-        // 更新模式顯示
-        updateModeDisplay();
-      }
-    }
-
+    
     // --- i18n Logic ---
     function toggleLanguage() {
       currentLang = currentLang === 'en' ? 'zh' : 'en';
@@ -2130,14 +1868,7 @@ function handleUI(request, apiKey) {
     function updateModeDisplay() {
       const strings = I18N[currentLang];
       const el = document.getElementById('mode-display');
-      
-      // 如果是圖片生成模式
-      if (currentGenMode === 'image') {
-        el.textContent = strings.mode_t2i || 'Text-to-Image';
-        el.style.color = 'var(--primary)';
-        return;
-      }
-      
+    
       // 影片生成模式
       if (uploadedImageUrl) {
         if (uploadedImageUrl.includes('.mp4') || uploadedImageUrl.includes('video')) {
@@ -2208,7 +1939,6 @@ function handleUI(request, apiKey) {
           style: document.getElementById('video-mode').value,
           image: uploadedImageUrl,
           isVideo: isVideoReference, // 方案 C：傳遞影片參考旗標
-          genMode: currentGenMode, // 'video' or 'image'
           created_at: Date.now(), // 精確毫秒時間戳
           date: formatTimeUTC8(Date.now()), // 格式化後的 UTC+8 時間
           progress: 0,
@@ -2228,76 +1958,18 @@ function handleUI(request, apiKey) {
     async function processTask(task) {
       const strings = I18N[currentLang];
       try {
-        let model;
-        let taskType = 'video';
-        
-        // 根據生成模式選擇模型
-        if (task.genMode === 'image') {
-          // 使用 WebUI 選擇的圖片模型
-          const imageModelSelect = document.getElementById('image-model');
-          model = imageModelSelect ? imageModelSelect.value : 'grok-image';
-          taskType = 'image';
-        } else {
-          model = 'grok-video-' + task.style;
-          if (task.image) {
-            // 判斷是圖片還是影片
-            if (task.image.includes('.mp4') || task.image.includes('video')) {
-              model = 'grok-video-image';
-            } else {
-              model = 'grok-video-image';
-            }
+        let model = 'grok-video-' + task.style;
+        if (task.image) {
+          // 判斷是圖片還是影片
+          if (task.image.includes('.mp4') || task.image.includes('video')) {
+            model = 'grok-video-image';
+          } else {
+            model = 'grok-video-image';
           }
         }
         
         // 記錄任務類型
-        task.type = taskType;
-
-        // 圖片生成：直接調用 /v1/images/generations API
-        if (task.genMode === 'image') {
-          task.status = 'processing';
-          renderGallery();
-          
-          const imageRes = await fetch(ORIGIN + '/v1/images/generations', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: model,
-              prompt: task.prompt,
-              size: task.ratio === '16:9' ? '1920x1080' : (task.ratio === '9:16' ? '1080x1920' : '1024x1024'),
-              n: 1
-            })
-          });
-          
-          const imageData = await imageRes.json();
-          
-          if (imageData.data && imageData.data[0]) {
-            const imgData = imageData.data[0];
-            
-            // 同步返回（mpp-image）
-            if (imgData.status === 'completed' && imgData.url) {
-              task.status = 'completed';
-              task.url = imgData.url;
-              completeTask(task);
-              return;
-            }
-            
-            // 異步返回（grok-image / ximagine）- 需要輪詢
-            if (imgData.status === 'pending' && imgData.taskId) {
-              startPolling(task, imgData.taskId, imgData.uniqueId, 'image');
-              return;
-            }
-            
-            // 其他情況：直接有 URL
-            if (imgData.url && !imgData.url.startsWith('pending:')) {
-              task.status = 'completed';
-              task.url = imgData.url;
-              completeTask(task);
-              return;
-            }
-          }
-          
-          throw new Error(imageData.error?.message || 'Image generation failed');
-        }
+        task.type = 'video';
 
         // 影片生成：使用 chat completions API
         const payload = {
