@@ -1080,12 +1080,24 @@ async function uploadToPermanentStorage(tempUrl, type = 'video') {
 			return { url: tempUrl, permanent: false };
 		}
 
-		// 提取永久 URL
+		// 提取永久 URL (支援多種回應格式)
 		let permanentUrl = null;
-		if (uploadData.url) {
+		
+		// 格式 1: { success: true, data: { public_url: "..." } }
+		if (uploadData.success && uploadData.data && uploadData.data.public_url) {
+			permanentUrl = uploadData.data.public_url;
+		}
+		// 格式 2: { url: "..." }
+		else if (uploadData.url) {
 			permanentUrl = uploadData.url;
-		} else if (uploadData.data && uploadData.data.url) {
+		}
+		// 格式 3: { data: { url: "..." } }
+		else if (uploadData.data && uploadData.data.url) {
 			permanentUrl = uploadData.data.url;
+		}
+		// 格式 4: { data: { publicUrl: "..." } }
+		else if (uploadData.data && uploadData.data.publicUrl) {
+			permanentUrl = uploadData.data.publicUrl;
 		}
 
 		if (permanentUrl) {
