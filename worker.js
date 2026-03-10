@@ -442,29 +442,20 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
               const innerData = JSON.parse(data.completeData);
               if (innerData.code === 200 && innerData.data && innerData.data.result_urls && innerData.data.result_urls.length > 0) {
               	videoUrl = innerData.data.result_urls[0];
-           
+            
               	const taskEndTime = Date.now();
               	const elapsedMs = taskEndTime - taskStartTime;
-           
-              	// 上傳到永久儲存
-              	const mediaType = modelConfig.type || 'video';
-              	const permanentResult = await uploadToPermanentStorage(videoUrl, mediaType);
-              	const finalUrl = permanentResult.url;
-           
+            
               	logEvent('task_completed', {
               		taskId,
               		elapsedMs,
               		completed_at: taskEndTime,
-              		originalUrl: videoUrl.substring(0, 50),
-              		permanentUrl: finalUrl.substring(0, 50),
-              		isPermanent: permanentResult.permanent
+              		url: videoUrl
               	});
-           
+            
               	return {
               		mode: 'sync',
-              		videoUrl: finalUrl,
-              		originalUrl: videoUrl,
-              		isPermanent: permanentResult.permanent,
+              		videoUrl: videoUrl,
               		created_at: taskStartTime,
               		completed_at: taskEndTime,
               		elapsed_ms: elapsedMs
@@ -787,28 +778,17 @@ async function handleStatusQuery(request, apiKey) {
               try {
                   const inner = JSON.parse(data.data.completeData);
                   if (inner.data && inner.data.result_urls && inner.data.result_urls.length > 0) {
-                  	const tempUrl = inner.data.result_urls[0];
-                  	
-                  	// 上傳到永久儲存
-                  	const permanentResult = await uploadToPermanentStorage(tempUrl, 'video');
-                  	
                   	result.status = 'completed';
-                  	result.videoUrl = permanentResult.url; // 永久 URL
-                  	result.originalUrl = tempUrl; // 原始臨時 URL
-                  	result.isPermanent = permanentResult.permanent;
+                  	result.videoUrl = inner.data.result_urls[0]; // 兼容旧版
                   	result.urls = inner.data.result_urls;
-               
+                
                   	const completedAt = Date.now();
                   	result.completed_at = completedAt;
                   	if (createdAt) {
                   		result.elapsed_ms = completedAt - parseInt(createdAt);
                   	}
-               
-                  	logEvent('task_polled_completed', {
-                  		taskId,
-                  		elapsedMs: result.elapsed_ms,
-                  		isPermanent: permanentResult.permanent
-                  	});
+                
+                  	logEvent('task_polled_completed', { taskId, elapsedMs: result.elapsed_ms });
                   } else {
                       // [关键修复] 捕获无 URL 的情况，返回上游原始信息供调试
                       result.status = 'failed';
@@ -1029,93 +1009,6 @@ async function handleFallbackUpload(file) {
   return new Response(JSON.stringify(data), {
       headers: corsHeaders({ 'Content-Type': 'application/json' })
   });
-}
-
-/**
- * 將臨時媒體 URL 上傳到永久儲存 (Supabase)
- * @param {string} tempUrl - 臨時媒體 URL
- * @param {string} type - 媒體類型 ('video' 或 'image')
- * @returns {Promise<{url: string, permanent: boolean}>}
- */
-async function uploadToPermanentStorage(tempUrl, type = 'video') {
-	try {
-		// 下載臨時媒體
-		const mediaRes = await fetch(tempUrl, {
-			headers: { 'User-Agent': generateIdentity().ua }
-		});
-
-		if (!mediaRes.ok) {
-			console.error('下載臨時媒體失敗:', mediaRes.status);
-			return { url: tempUrl, permanent: false };
-		}
-
-		// 取得媒體內容
-		const mediaBlob = await mediaRes.blob();
-		const ext = type === 'video' ? 'mp4' : 'png';
-		const fileName = `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
-
-		// 建立 FormData 上傳
-		const formData = new FormData();
-		formData.append('file', mediaBlob, fileName);
-
-		// 上傳到 Supabase
-		const supabaseUrl = CONFIG.SUPABASE_UPLOAD_URL;
-		const supabaseKey = CONFIG.SUPABASE_API_KEY;
-
-		if (!supabaseUrl || !supabaseKey) {
-			console.error('Supabase 配置缺失');
-			return { url: tempUrl, permanent: false };
-		}
-
-		const uploadRes = await fetch(supabaseUrl, {
-			method: 'POST',
-			headers: { 'Authorization': 'Bearer ' + supabaseKey },
-			body: formData
-		});
-
-		const uploadData = await uploadRes.json();
-
-		if (!uploadRes.ok) {
-			console.error('Supabase 上傳失敗:', uploadData);
-			return { url: tempUrl, permanent: false };
-		}
-
-		// 提取永久 URL (支援多種回應格式)
-		let permanentUrl = null;
-		
-		// 格式 1: { success: true, data: { public_url: "..." } }
-		if (uploadData.success && uploadData.data && uploadData.data.public_url) {
-			permanentUrl = uploadData.data.public_url;
-		}
-		// 格式 2: { url: "..." }
-		else if (uploadData.url) {
-			permanentUrl = uploadData.url;
-		}
-		// 格式 3: { data: { url: "..." } }
-		else if (uploadData.data && uploadData.data.url) {
-			permanentUrl = uploadData.data.url;
-		}
-		// 格式 4: { data: { publicUrl: "..." } }
-		else if (uploadData.data && uploadData.data.publicUrl) {
-			permanentUrl = uploadData.data.publicUrl;
-		}
-
-		if (permanentUrl) {
-			logEvent('permanent_upload_success', {
-				originalUrl: tempUrl.substring(0, 50),
-				permanentUrl: permanentUrl.substring(0, 50),
-				type: type
-			});
-			return { url: permanentUrl, permanent: true };
-		} else {
-			console.error('Supabase 回應缺少 URL:', uploadData);
-			return { url: tempUrl, permanent: false };
-		}
-
-	} catch (e) {
-		console.error('永久儲存上傳錯誤:', e.message);
-		return { url: tempUrl, permanent: false };
-	}
 }
 
 // --- 加密辅助函数 (Ported from Source) ---
