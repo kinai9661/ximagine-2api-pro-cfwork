@@ -1,4 +1,4 @@
-﻿// =================================================================================
+// =================================================================================
 //  项目: ximagine-2api (Cloudflare Worker 单文件版)
 //  版本: 2.2.0 (代号: Chimera Synthesis - Final Release)
 //  作者: 首席AI执行官 (Principal AI Executive Officer)
@@ -222,7 +222,7 @@ function extractImageUrlFromMarkdown(text) {
 /**
 * mpp.pp 圖片生成
 */
-async function handleMppImageGeneration(prompt, model = "Grok-Imagine-1.0", aspectRatio = "1:1", resolution = "2k") {
+async function handleMppImageGeneration(prompt, model = "grok-imagine-image", aspectRatio = "1:1", resolution = "2k") {
     const res = await fetch(`${CONFIG.MPP_API_BASE}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -441,25 +441,25 @@ async function performGeneration(prompt, aspectRatio, duration, resolution, mode
           try {
               const innerData = JSON.parse(data.completeData);
               if (innerData.code === 200 && innerData.data && innerData.data.result_urls && innerData.data.result_urls.length > 0) {
-              	videoUrl = innerData.data.result_urls[0];
-            
-              	const taskEndTime = Date.now();
-              	const elapsedMs = taskEndTime - taskStartTime;
-            
-              	logEvent('task_completed', {
-              		taskId,
-              		elapsedMs,
-              		completed_at: taskEndTime,
-              		url: videoUrl
-              	});
-            
-              	return {
-              		mode: 'sync',
-              		videoUrl: videoUrl,
-              		created_at: taskStartTime,
-              		completed_at: taskEndTime,
-              		elapsed_ms: elapsedMs
-              	};
+                  videoUrl = innerData.data.result_urls[0];
+                  
+                  const taskEndTime = Date.now();
+                  const elapsedMs = taskEndTime - taskStartTime;
+                  
+                  logEvent('task_completed', { 
+                      taskId, 
+                      elapsedMs, 
+                      completed_at: taskEndTime,
+                      url: videoUrl 
+                  });
+
+                  return { 
+                      mode: 'sync', 
+                      videoUrl: videoUrl,
+                      created_at: taskStartTime,
+                      completed_at: taskEndTime,
+                      elapsed_ms: elapsedMs
+                  };
               } else {
                   // 任务完成但无 URL，通常是敏感词拦截
                   throw new Error(`生成被拦截或失败: ${JSON.stringify(innerData)}`);
@@ -778,17 +778,17 @@ async function handleStatusQuery(request, apiKey) {
               try {
                   const inner = JSON.parse(data.data.completeData);
                   if (inner.data && inner.data.result_urls && inner.data.result_urls.length > 0) {
-                  	result.status = 'completed';
-                  	result.videoUrl = inner.data.result_urls[0]; // 兼容旧版
-                  	result.urls = inner.data.result_urls;
-                
-                  	const completedAt = Date.now();
-                  	result.completed_at = completedAt;
-                  	if (createdAt) {
-                  		result.elapsed_ms = completedAt - parseInt(createdAt);
-                  	}
-                
-                  	logEvent('task_polled_completed', { taskId, elapsedMs: result.elapsed_ms });
+                      result.status = 'completed';
+                      result.videoUrl = inner.data.result_urls[0]; // 兼容旧版
+                      result.urls = inner.data.result_urls;
+                      
+                      const completedAt = Date.now();
+                      result.completed_at = completedAt;
+                      if (createdAt) {
+                          result.elapsed_ms = completedAt - parseInt(createdAt);
+                      }
+                      
+                      logEvent('task_polled_completed', { taskId, elapsedMs: result.elapsed_ms });
                   } else {
                       // [关键修复] 捕获无 URL 的情况，返回上游原始信息供调试
                       result.status = 'failed';
@@ -2564,5 +2564,4 @@ function handleUI(request, apiKey) {
 </html>`;
   return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 }
-
 
