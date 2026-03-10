@@ -1,4 +1,4 @@
-name = "ximagine-2api-pro"
+name = "ximagine-2api-pro-cfwork"
 main = "worker.js"
 compatibility_date = "2024-03-03"
 
