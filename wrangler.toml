@@ -6,10 +6,14 @@ compatibility_date = "2024-03-03"
 # ⚠️ 請在 Cloudflare 控制台或使用 `wrangler secret put API_MASTER_KEY` 設置此密鑰
 API_MASTER_KEY = "9661"
 
-# Supabase 媒體托管配置
-# ⚠️ 建議使用 `wrangler secret put SUPABASE_API_KEY` 設置敏感密鑰
-SUPABASE_UPLOAD_URL = "https://bkdsuattzwucejyqdgsg.supabase.co/functions/v1/api/upload"
-SUPABASE_API_KEY = "mhp_8CEr8Yxsnct0BbsZs9WR1dgKzRxADIQX"
+# Supabase 媒體托管配置 (已停用 - 需要 Turnstile 驗證)
+# ⚠️ 如需啟用，請取消註解並確保 Supabase Function 不需要 Turnstile
+# SUPABASE_UPLOAD_URL = "https://bkdsuattzwucejyqdgsg.supabase.co/functions/v1/api/upload"
+# SUPABASE_API_KEY = "mhp_8CEr8Yxsnct0BbsZs9WR1dgKzRxADIQX"
+
+# 備用上傳端點 (使用 aiquickdraw.com)
+# 程式會自動使用 handleFallbackUpload 函數
+
 # [observability]
 # enabled = true
 
